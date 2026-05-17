@@ -195,7 +195,7 @@ const AICreateScreen = ({ onSave }) => {
   const [linkError, setLinkError] = React.useState(null);
   const [linkMeta, setLinkMeta] = React.useState(null);
   const [apiKey, setApiKey] = React.useState(getGroqApiKey());
-  const [showApiKey, setShowApiKey] = React.useState(false);
+  const [showApiKey, setShowApiKey] = React.useState(!getGroqApiKey());
   const fileInputRef = React.useRef(null);
 
   const saveApiKey = (key) => {
@@ -293,6 +293,12 @@ const AICreateScreen = ({ onSave }) => {
   };
 
   const generate = async () => {
+    if (!getGroqApiKey()) {
+      setShowApiKey(true);
+      setError("Configure sua chave Groq antes de gerar. Cole a chave no campo acima.");
+      return;
+    }
+
     let content = null;
     let urlMeta = null;
 
