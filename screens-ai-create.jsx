@@ -2,11 +2,8 @@
 // SCREEN: AI CARD CREATION
 // =========================================================================
 
+const GROQ_API_KEY = "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";
 const GROQ_MODEL = "llama-3.3-70b-versatile";
-const getGroqApiKey = () =>
-  localStorage.getItem("danki_groq_key") ||
-  (window.DANKI_CONFIG || {}).GROQ_API_KEY ||
-  "";
 
 const generateFlashcardsWithGroq = async (text, count, style, language) => {
   const styleInstructions = {
@@ -52,7 +49,7 @@ ${text}`;
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${getGroqApiKey()}`,
+        "Authorization": `Bearer ${GROQ_API_KEY}`,
       },
       body: JSON.stringify({
         model: GROQ_MODEL,
@@ -130,7 +127,7 @@ ${content.slice(0, 14000)}`;
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${getGroqApiKey()}`,
+      "Authorization": `Bearer ${GROQ_API_KEY}`,
     },
     body: JSON.stringify({
       model: GROQ_MODEL,
@@ -194,14 +191,7 @@ const AICreateScreen = ({ onSave }) => {
   const [linkLoading, setLinkLoading] = React.useState(false);
   const [linkError, setLinkError] = React.useState(null);
   const [linkMeta, setLinkMeta] = React.useState(null);
-  const [apiKey, setApiKey] = React.useState(getGroqApiKey());
-  const [showApiKey, setShowApiKey] = React.useState(!getGroqApiKey());
   const fileInputRef = React.useRef(null);
-
-  const saveApiKey = (key) => {
-    localStorage.setItem("danki_groq_key", key);
-    setApiKey(key);
-  };
 
   React.useEffect(() => {
     fetchDecksSimple()
@@ -293,12 +283,6 @@ const AICreateScreen = ({ onSave }) => {
   };
 
   const generate = async () => {
-    if (!getGroqApiKey()) {
-      setShowApiKey(true);
-      setError("Configure sua chave Groq antes de gerar. Cole a chave no campo acima.");
-      return;
-    }
-
     let content = null;
     let urlMeta = null;
 
@@ -387,15 +371,6 @@ const AICreateScreen = ({ onSave }) => {
           </div>
         </div>
         <div style={{display:"flex", gap:10, alignItems:"center"}}>
-          <button
-            className="btn ghost"
-            onClick={() => setShowApiKey(v => !v)}
-            title="Configurar chave Groq"
-            style={{display:"flex", alignItems:"center", gap:6}}
-          >
-            <Icon name="key" size={14}/>
-            {apiKey ? "Chave OK" : "⚠️ Sem chave"}
-          </button>
           <button className="btn ghost">Salvar rascunho</button>
           <button
             className="btn primary"
@@ -407,29 +382,6 @@ const AICreateScreen = ({ onSave }) => {
           </button>
         </div>
       </div>
-
-      {showApiKey && (
-        <div style={{background:"var(--color-surface)",border:"1px solid var(--color-border)",borderRadius:"var(--radius-md)",padding:"16px 20px",marginBottom:16,display:"flex",gap:10,alignItems:"center"}}>
-          <Icon name="key" size={16} style={{flexShrink:0,color:"var(--color-muted)"}}/>
-          <div style={{flex:1}}>
-            <div style={{fontSize:12,color:"var(--color-muted)",marginBottom:6}}>Chave API Groq — salva no navegador, nunca enviada ao servidor. <a href="https://console.groq.com" target="_blank" style={{color:"var(--color-accent)"}}>Obter chave</a></div>
-            <input
-              type="password"
-              placeholder="gsk_..."
-              value={apiKey}
-              onChange={e => saveApiKey(e.target.value)}
-              style={{width:"100%",background:"var(--color-bg)",border:"1px solid var(--color-border)",borderRadius:"var(--radius-sm)",padding:"8px 12px",color:"var(--color-text)",fontFamily:"var(--font-mono)",fontSize:13}}
-            />
-          </div>
-          {apiKey && <span style={{color:"#4ade80",fontSize:12,flexShrink:0}}>✓ Ativa</span>}
-        </div>
-      )}
-
-      {!apiKey && (
-        <div style={{background:"#ff000015",border:"1px solid #ff000040",borderRadius:"var(--radius-md)",padding:"12px 16px",marginBottom:16,fontSize:13,color:"var(--color-text)"}}>
-          ⚠️ Chave Groq não configurada. Clique em <strong>"⚠️ Sem chave"</strong> acima para inserir sua chave e usar a IA.
-        </div>
-      )}
 
       <div className="ai-grid">
         {/* Input panel */}
