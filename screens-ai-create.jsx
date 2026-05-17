@@ -3,7 +3,7 @@
 // =========================================================================
 
 // ⚠️ Substitua pela sua chave de API do Groq: https://console.groq.com
-const GROQ_API_KEY = "SUA_CHAVE_GROQ_AQUI"; // Obtenha em: https://console.groq.com
+const GROQ_API_KEY = (window.DANKI_CONFIG || {}).GROQ_API_KEY || "";
 const GROQ_MODEL = "llama-3.3-70b-versatile";
 
 const generateFlashcardsWithGroq = async (text, count, style, language) => {
