@@ -3,7 +3,7 @@
 // =========================================================================
 
 const GROQ_API_KEY = "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";
-const GROQ_MODEL = "llama-3.3-70b-versatile";
+const GROQ_MODEL = "llama-3.1-8b-instant";
 console.log("[Danki] screens-ai-create.jsx loaded — key prefix:", GROQ_API_KEY.slice(0, 12), "len:", GROQ_API_KEY.length);
 
 const generateFlashcardsWithGroq = async (text, count, style, language) => {
@@ -122,7 +122,7 @@ Retorne APENAS um JSON válido, sem texto adicional:
 ]
 
 Conteúdo:
-${content.slice(0, 14000)}`;
+${content.slice(0, 10000)}`;
 
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
