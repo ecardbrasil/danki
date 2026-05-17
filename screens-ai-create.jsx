@@ -3,7 +3,7 @@
 // =========================================================================
 
 // ⚠️ Substitua pela sua chave de API do Groq: https://console.groq.com
-const GROQ_API_KEY = (window.DANKI_CONFIG || {}).GROQ_API_KEY || "";
+const getGroqApiKey = () => (window.DANKI_CONFIG || {}).GROQ_API_KEY || "";
 const GROQ_MODEL = "llama-3.3-70b-versatile";
 
 const generateFlashcardsWithGroq = async (text, count, style, language) => {
@@ -50,7 +50,7 @@ ${text}`;
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${GROQ_API_KEY}`,
+        "Authorization": `Bearer ${getGroqApiKey()}`,
       },
       body: JSON.stringify({
         model: GROQ_MODEL,
@@ -128,7 +128,7 @@ ${content.slice(0, 14000)}`;
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${GROQ_API_KEY}`,
+      "Authorization": `Bearer ${getGroqApiKey()}`,
     },
     body: JSON.stringify({
       model: GROQ_MODEL,
