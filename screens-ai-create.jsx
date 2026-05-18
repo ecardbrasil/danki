@@ -3,16 +3,65 @@
 // =========================================================================
 
 const GROQ_API_KEY = "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";
-const GROQ_MODEL = "llama-3.1-8b-instant";
 console.log("[Danki] screens-ai-create.jsx loaded — key prefix:", GROQ_API_KEY.slice(0, 12), "len:", GROQ_API_KEY.length);
 
+// ── Model configuration (Groq free-tier limits, May 2025) ──────────────────
+// fast : llama-3.1-8b-instant  — 6K TPM, 14.4K RPD  → bulk chunk extraction
+// smart: llama-4-scout-17b    — 30K TPM,  1K RPD  → single calls + compilation
+const GROQ_MODELS = {
+  fast: {
+    id: "llama-3.1-8b-instant",
+    maxTokens: 2000,  // 10K chars input (~2500 tok) + 2000 output = ~4500 total < 6K TPM ✓
+    tpm: 6000,
+    label: "Llama 8B",
+  },
+  smart: {
+    id: "meta-llama/llama-4-scout-17b-16e-instruct",
+    maxTokens: 8000,  // 25K chars input (~6250 tok) + 8000 output = ~14250 total < 30K TPM ✓
+    tpm: 30000,
+    label: "Llama Scout",
+  },
+};
+
+// Texts ≤ this threshold go to "smart" in a single call (no chunking)
+const GROQ_SINGLE_THRESHOLD = 25000;
+// Max chars per chunk sent to "fast" model
 const GROQ_CHUNK_SIZE = 10000;
-const GROQ_CHUNK_DELAY = 5000;
+// Fallback retry wait when no x-ratelimit-reset-tokens header is present
 const GROQ_RETRY_DELAY = 20000;
 const GROQ_MAX_RETRIES = 3;
 
 const delay = (ms) => new Promise(res => setTimeout(res, ms));
 
+// Parse Groq's x-ratelimit-reset-tokens header ("7.66s", "1m30.5s") → ms
+const parseResetMs = (resetStr) => {
+  if (!resetStr) return 0;
+  let ms = 0;
+  const minMatch = resetStr.match(/(\d+)m/);
+  const secMatch = resetStr.match(/([\d.]+)s/);
+  if (minMatch) ms += parseInt(minMatch[1]) * 60000;
+  if (secMatch) ms += parseFloat(secMatch[1]) * 1000;
+  return ms;
+};
+
+// Robustly extract a cards array from any Groq response content
+const parseCardsFromRaw = (raw) => {
+  if (!raw) return [];
+  // Try bare JSON array first (legacy / non-json_object mode)
+  const arrMatch = raw.match(/\[[\s\S]*\]/);
+  if (arrMatch) {
+    try { return JSON.parse(arrMatch[0]); } catch (_) {}
+  }
+  // Try JSON object with a "cards" key
+  try {
+    const obj = JSON.parse(raw);
+    if (Array.isArray(obj)) return obj;
+    if (obj.cards && Array.isArray(obj.cards)) return obj.cards;
+  } catch (_) {}
+  return [];
+};
+
+// Split text at paragraph boundaries, respecting GROQ_CHUNK_SIZE
 const splitIntoChunks = (text, maxChars = GROQ_CHUNK_SIZE) => {
   const paragraphs = text.split('\n');
   const chunks = [];
@@ -29,60 +78,8 @@ const splitIntoChunks = (text, maxChars = GROQ_CHUNK_SIZE) => {
   return chunks.length > 0 ? chunks : [text];
 };
 
-const callGroqChunk = async (prompt, signal) => {
-  let retries = 0;
-  while (retries < GROQ_MAX_RETRIES) {
-    if (signal?.aborted) throw new DOMException("Cancelado pelo usuário.", "AbortError");
-
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      signal,
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${GROQ_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: GROQ_MODEL,
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 2000,
-        temperature: 0.4,
-        response_format: { type: "json_object" },
-      }),
-    });
-
-    if (response.status === 429) {
-      retries++;
-      if (retries >= GROQ_MAX_RETRIES) throw new Error("Limite de uso da IA atingido. Aguarde um minuto e tente novamente.");
-      await delay(GROQ_RETRY_DELAY);
-      continue;
-    }
-
-    if (response.status === 413) {
-      throw new Error("Texto muito longo para o plano atual da IA. Tente com um texto mais curto.");
-    }
-
-    if (!response.ok) {
-      const err = await response.json();
-      throw new Error(err.error?.message || "Erro na API do Groq");
-    }
-
-    const data = await response.json();
-    const raw = data.choices?.[0]?.message?.content || "";
-
-    const arrMatch = raw.match(/\[[\s\S]*\]/);
-    if (arrMatch) return JSON.parse(arrMatch[0]);
-
-    try {
-      const obj = JSON.parse(raw);
-      if (obj.cards && Array.isArray(obj.cards)) return obj.cards;
-    } catch (_) {}
-
-    return [];
-  }
-  return [];
-};
-
-const generateFlashcardsWithGroq = async (text, count, style, language, onProgress, signal) => {
+// Build the flashcard generation prompt for a text chunk
+const buildChunkPrompt = (chunk, count, style, language, isMultipleChoice, isPartial) => {
   const styleInstructions = {
     "Q&A clássico": "Crie perguntas diretas com respostas objetivas.",
     "Cloze (lacuna)": "Crie frases com uma palavra ou conceito-chave substituído por '___'. A resposta é a palavra removida.",
@@ -93,20 +90,9 @@ Cada card deve ter os campos extras: "options" (array com 3 strings no formato [
 O campo "a" deve conter uma explicação curta do por que a resposta correta está certa.`,
   };
 
-  const isMultipleChoice = style === "Múltipla escolha";
-  const chunks = splitIntoChunks(text);
-  const isMultiChunk = chunks.length > 1;
-  const allCards = [];
+  return `Você é um especialista em educação e criação de flashcards para memorização espaçada (SRS).
 
-  for (let i = 0; i < chunks.length; i++) {
-    if (signal?.aborted) break;
-    if (onProgress) onProgress({ current: i + 1, total: chunks.length });
-
-    const cardsPerChunk = isMultiChunk ? Math.max(3, Math.ceil(count / chunks.length)) : count;
-
-    const prompt = `Você é um especialista em educação e criação de flashcards para memorização espaçada (SRS).
-
-Analise o texto abaixo e gere ${isMultiChunk ? `até ${cardsPerChunk} flashcards com os conceitos mais importantes` : `exatamente ${count} flashcards`} em ${language}.
+Analise o texto abaixo e gere ${isPartial ? `até ${count} flashcards com os conceitos mais importantes` : `exatamente ${count} flashcards`} em ${language}.
 Estilo: ${styleInstructions[style] || styleInstructions["Q&A clássico"]}
 
 Retorne APENAS um JSON válido com a chave "cards", neste formato:
@@ -127,18 +113,146 @@ Retorne APENAS um JSON válido com a chave "cards", neste formato:
 ] }
 
 Texto para analisar:
-${chunks[i]}`;
-
-    const cards = await callGroqChunk(prompt, signal);
-    allCards.push(...cards);
-    if (onProgress) onProgress({ current: i + 1, total: chunks.length, partialCards: allCards });
-
-    if (i < chunks.length - 1 && !signal?.aborted) await delay(GROQ_CHUNK_DELAY);
-  }
-
-  return allCards;
+${chunk}`;
 };
 
+// ── Core API function ──────────────────────────────────────────────────────
+// Sends one request to Groq, handles 429/413/errors, reads rate-limit headers.
+// Returns { cards, remainingTokens, resetStr } so callers can pace themselves.
+const callGroq = async (prompt, modelKey, signal) => {
+  const cfg = GROQ_MODELS[modelKey] || GROQ_MODELS.fast;
+  let retries = 0;
+
+  while (retries < GROQ_MAX_RETRIES) {
+    if (signal?.aborted) throw new DOMException("Cancelado pelo usuário.", "AbortError");
+
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      signal,
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: cfg.id,
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: cfg.maxTokens,
+        temperature: 0.4,
+        response_format: { type: "json_object" },
+      }),
+    });
+
+    // Read rate-limit headers before consuming the body
+    const remainingTokens = parseInt(response.headers.get("x-ratelimit-remaining-tokens") || cfg.tpm);
+    const resetStr = response.headers.get("x-ratelimit-reset-tokens") || "";
+
+    if (response.status === 429) {
+      retries++;
+      if (retries >= GROQ_MAX_RETRIES) {
+        throw new Error("Limite de uso da IA atingido. Aguarde alguns segundos e tente novamente.");
+      }
+      // Use the exact reset time from the header — no guessing
+      const waitMs = parseResetMs(resetStr) || GROQ_RETRY_DELAY;
+      await delay(waitMs + 500); // +500ms safety buffer
+      continue;
+    }
+
+    if (response.status === 413) {
+      throw new Error("Texto muito longo para o plano atual da IA. Tente com um trecho menor.");
+    }
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error?.message || `Erro na API Groq (${response.status})`);
+    }
+
+    const data = await response.json();
+    const raw = data.choices?.[0]?.message?.content || "";
+    const cards = parseCardsFromRaw(raw);
+    return { cards, remainingTokens, resetStr };
+  }
+
+  return { cards: [], remainingTokens: 0, resetStr: "" };
+};
+
+// ── Main generation orchestrator ───────────────────────────────────────────
+// Routing logic:
+//   text ≤ 25K chars → single "smart" call (Llama Scout, 30K TPM)
+//   text >  25K chars → chunk with "fast" (Llama 8B, 6K TPM) + compile with "smart"
+const generateFlashcardsWithGroq = async (text, count, style, language, onProgress, signal) => {
+  const isMultipleChoice = style === "Múltipla escolha";
+
+  // ── SHORT PATH: one smart call ────────────────────────────────────────────
+  if (text.length <= GROQ_SINGLE_THRESHOLD) {
+    if (onProgress) onProgress({ current: 1, total: 1, phase: "generating", model: "smart" });
+    const prompt = buildChunkPrompt(text, count, style, language, isMultipleChoice, false);
+    const { cards } = await callGroq(prompt, "smart", signal);
+    if (onProgress) onProgress({ current: 1, total: 1, partialCards: cards, phase: "done", model: "smart" });
+    return cards;
+  }
+
+  // ── LONG PATH: chunk extraction + compilation ─────────────────────────────
+  const chunks = splitIntoChunks(text);
+  const totalSteps = chunks.length + 1; // last step = compilation
+  const allRawCards = [];
+
+  for (let i = 0; i < chunks.length; i++) {
+    if (signal?.aborted) break;
+
+    if (onProgress) onProgress({ current: i + 1, total: totalSteps, phase: "chunks", model: "fast" });
+
+    // Generate 50% more cards than needed so compilation has good material to pick from
+    const cardsPerChunk = Math.max(3, Math.min(Math.ceil(count * 1.5 / chunks.length), 10));
+    const prompt = buildChunkPrompt(chunks[i], cardsPerChunk, style, language, isMultipleChoice, true);
+    const { cards, remainingTokens, resetStr } = await callGroq(prompt, "fast", signal);
+
+    allRawCards.push(...cards);
+    if (onProgress) onProgress({ current: i + 1, total: totalSteps, partialCards: allRawCards, phase: "chunks", model: "fast" });
+
+    if (i < chunks.length - 1 && !signal?.aborted) {
+      // Adaptive pacing: if the token bucket is nearly empty, wait for the exact
+      // reset time from the response header instead of a fixed sleep
+      if (remainingTokens < 3000) {
+        const waitMs = parseResetMs(resetStr) || GROQ_RETRY_DELAY;
+        await delay(waitMs + 500);
+      } else {
+        await delay(800); // minimal polite delay when tokens are plentiful
+      }
+    }
+  }
+
+  if (signal?.aborted || allRawCards.length === 0) return allRawCards;
+
+  // ── COMPILATION: deduplicate + improve using smart model ─────────────────
+  if (onProgress) onProgress({ current: totalSteps, total: totalSteps, partialCards: allRawCards, phase: "compiling", model: "smart" });
+
+  const compilationPrompt = `Você é um especialista em educação e criação de flashcards para memorização espaçada (SRS).
+
+Abaixo estão flashcards brutos extraídos de diferentes partes de um texto. Sua tarefa:
+1. Elimine duplicatas (cards que cobrem o mesmo conceito)
+2. Melhore a clareza e objetividade dos cards restantes
+3. Selecione os ${count} cards mais relevantes, variados e pedagogicamente ricos
+4. Preserve todos os campos originais${isMultipleChoice ? " (q, options, answer, a, tag, diff, type)" : " (q, a, tag, diff)"}
+5. Retorne em ${language}
+
+Retorne APENAS um JSON válido com a chave "cards":
+{ "cards": [...] }
+
+Cards brutos para revisar:
+${JSON.stringify({ cards: allRawCards })}`;
+
+  try {
+    const { cards: compiled } = await callGroq(compilationPrompt, "smart", signal);
+    // Sanity check: if compilation returned too few cards, fall back to raw
+    return compiled.length >= Math.min(3, count) ? compiled : allRawCards.slice(0, count);
+  } catch (e) {
+    if (e.name === "AbortError") throw e;
+    // Compilation failed — return best raw cards trimmed to requested count
+    return allRawCards.slice(0, count);
+  }
+};
+
+// ── URL / YouTube generation ───────────────────────────────────────────────
 const extractVideoId = (url) => {
   const patterns = [
     /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/,
@@ -161,10 +275,12 @@ const fetchUrlContent = async (url) => {
   return text;
 };
 
-const generateFlashcardsFromUrl = async (content, count, style, language, meta) => {
+const generateFlashcardsFromUrl = async (content, count, style, language, meta, onProgress, signal) => {
   const isYoutube = meta?.isYoutube;
+
   const extraFieldsDesc = isYoutube
-    ? `"timestamp": <inteiro em segundos, momento aproximado no vídeo onde o conceito aparece — estime pela posição no texto>,\n    "videoId": "${meta.videoId}",`
+    ? `"timestamp": número inteiro em segundos (posição estimada no vídeo — use 0 se incerto, nunca null),
+    "videoId": "${meta.videoId}",`
     : `"source_url": "${meta?.url || ""}",`;
 
   const prompt = `Você é um especialista em criação de flashcards para memorização espaçada (SRS).
@@ -174,8 +290,8 @@ ${isYoutube
   ? `O conteúdo é a transcrição de um vídeo do YouTube (ID: ${meta.videoId}). Para cada card, estime o "timestamp" em segundos onde o conceito aparece na transcrição (proporcional à posição do texto). Nunca deixe o timestamp null — use 0 se incerto.`
   : `O conteúdo foi extraído da URL: ${meta?.url || ""}. Inclua o campo source_url com a URL original.`}
 
-Retorne APENAS um JSON válido, sem texto adicional:
-[
+Retorne APENAS um JSON válido com a chave "cards":
+{ "cards": [
   {
     "q": "pergunta ou frente do card",
     "a": "resposta ou verso do card",
@@ -183,37 +299,18 @@ Retorne APENAS um JSON válido, sem texto adicional:
     "tag": "categoria (1-2 palavras)",
     "diff": número de 1 a 5
   }
-]
+] }
 
 Conteúdo:
-${content.slice(0, 10000)}`;
+${content.slice(0, 22000)}`;
 
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${GROQ_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: GROQ_MODEL,
-      messages: [{ role: "user", content: prompt }],
-      max_tokens: 4096,
-      temperature: 0.4,
-    }),
-  });
-
-  if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.error?.message || "Erro na API do Groq");
-  }
-
-  const data = await response.json();
-  const raw = data.choices?.[0]?.message?.content || "";
-  const match = raw.match(/\[[\s\S]*\]/);
-  if (!match) throw new Error("Resposta inválida da IA — JSON não encontrado");
-  return JSON.parse(match[0]);
+  if (onProgress) onProgress({ current: 1, total: 1, phase: "generating", model: "smart" });
+  const { cards } = await callGroq(prompt, "smart", signal);
+  if (onProgress) onProgress({ current: 1, total: 1, partialCards: cards, phase: "done", model: "smart" });
+  return cards;
 };
 
+// ── PDF text extraction ────────────────────────────────────────────────────
 const extractTextFromPdf = async (file) => {
   const pdfjsLib = window.pdfjsLib;
   if (!pdfjsLib) throw new Error("PDF.js ainda não carregou. Recarregue a página.");
@@ -232,6 +329,7 @@ const extractTextFromPdf = async (file) => {
   return pageTexts.join("\n\n");
 };
 
+// ── Main component ─────────────────────────────────────────────────────────
 const AICreateScreen = ({ onSave }) => {
   const [source, setSource] = React.useState("texto");
   const [text, setText] = React.useState("");
@@ -270,6 +368,7 @@ const AICreateScreen = ({ onSave }) => {
       .catch(() => {});
   }, []);
 
+  // Warn before navigating away during generation
   React.useEffect(() => {
     const handleBeforeUnload = (e) => {
       if (generating) {
@@ -405,20 +504,23 @@ const AICreateScreen = ({ onSave }) => {
     setChunkProgress(null);
     setGeneratedCards([]);
 
+    // Local vars track latest state reliably inside catch (no stale closure)
     let latestCards = [];
     let lastChunk = null;
 
     try {
+      const onProgress = (p) => {
+        lastChunk = p;
+        setChunkProgress(p);
+        if (p.partialCards) {
+          latestCards = p.partialCards;
+          setGeneratedCards([...p.partialCards]);
+        }
+      };
+
       const cards = source === "link"
-        ? await generateFlashcardsFromUrl(content, count, style, language, urlMeta)
-        : await generateFlashcardsWithGroq(content, count, style, language, (p) => {
-            lastChunk = p;
-            setChunkProgress(p);
-            if (p.partialCards) {
-              latestCards = p.partialCards;
-              setGeneratedCards([...p.partialCards]);
-            }
-          }, controller.signal);
+        ? await generateFlashcardsFromUrl(content, count, style, language, urlMeta, onProgress, controller.signal)
+        : await generateFlashcardsWithGroq(content, count, style, language, onProgress, controller.signal);
 
       if (!controller.signal.aborted) {
         latestCards = cards;
@@ -479,6 +581,34 @@ const AICreateScreen = ({ onSave }) => {
     setGeneratedCards(prev => prev.filter((_, j) => j !== index));
   };
 
+  // ── Derived labels for UI ────────────────────────────────────────────────
+  const modelLabel = (() => {
+    if (!generating) return "Danki Reason · pt-br";
+    if (chunkProgress?.phase === "compiling") return "Llama Scout · compilando";
+    if (chunkProgress?.model === "fast") return "Llama 8B · extração";
+    return "Llama Scout · analisando";
+  })();
+
+  const chunkCount = chunkProgress ? chunkProgress.total - 1 : 0; // total - 1 excludes compilation step
+  const buttonLabel = (() => {
+    if (!generating) return "Gerar cards";
+    if (chunkProgress?.phase === "compiling") return "Compilando…";
+    if (chunkProgress && chunkProgress.total > 1) return `Parte ${chunkProgress.current} de ${chunkCount}…`;
+    return "Analisando…";
+  })();
+
+  const previewLabel = (() => {
+    if (generated) return `${generatedCards.length} cards gerados`;
+    if (!generating) return "aguardando";
+    if (chunkProgress?.phase === "compiling") return "Compilando e refinando…";
+    if (chunkProgress && chunkProgress.total > 1) return `Analisando parte ${chunkProgress.current} de ${chunkCount}…`;
+    return "analisando…";
+  })();
+
+  const progressPct = chunkProgress
+    ? Math.round((chunkProgress.current / chunkProgress.total) * 100)
+    : 0;
+
   return (
     <div className="screen">
       <div className="screen-head">
@@ -514,7 +644,7 @@ const AICreateScreen = ({ onSave }) => {
             </div>
             <div style={{marginLeft:"auto", display:"flex", gap:8, alignItems:"center", fontSize:12, color:"var(--text-mute)"}}>
               <Icon name="bolt" size={13} style={{color:"var(--violet)"}}/>
-              Modelo: <strong style={{color:"var(--text-soft)"}}>Danki Reason · pt-br</strong>
+              Modelo: <strong style={{color:"var(--text-soft)"}}>{modelLabel}</strong>
             </div>
           </div>
 
@@ -730,11 +860,7 @@ const AICreateScreen = ({ onSave }) => {
               ) : null}
               <button className="btn primary" onClick={generate} disabled={generating}>
                 <Icon name="sparkle" size={13}/>
-                {generating
-                  ? chunkProgress && chunkProgress.total > 1
-                    ? `Parte ${chunkProgress.current} de ${chunkProgress.total}…`
-                    : "Gerando…"
-                  : "Gerar cards"}
+                {buttonLabel}
               </button>
             </div>
           </div>
@@ -744,35 +870,41 @@ const AICreateScreen = ({ onSave }) => {
         <div className="ai-preview-panel">
           <h4>
             <Icon name="sparkle" size={14} className="sparkle"/>
-            Preview · {generated ? `${generatedCards.length} cards gerados` : generating
-              ? chunkProgress && chunkProgress.total > 1
-                ? `Analisando parte ${chunkProgress.current} de ${chunkProgress.total}…`
-                : "gerando…"
-              : "aguardando"}
+            Preview · {previewLabel}
           </h4>
+
+          {/* Progress bar — violet during chunk extraction, accent during compilation */}
           {generating && chunkProgress && chunkProgress.total > 1 && (
             <div style={{height:3, borderRadius:2, background:"var(--surface-2)", overflow:"hidden", marginBottom:10}}>
               <div style={{
                 height:"100%",
-                width:`${Math.round((chunkProgress.current / chunkProgress.total) * 100)}%`,
-                background:"var(--violet)",
+                width:`${progressPct}%`,
+                background: chunkProgress.phase === "compiling" ? "var(--accent)" : "var(--violet)",
                 borderRadius:2,
-                transition:"width .4s ease",
+                transition:"width .4s ease, background .3s ease",
               }}/>
             </div>
           )}
+
           {error && (
             <div style={{background:"var(--surface-2)", border:`1px solid ${partialError ? "var(--rose)" : "#f87171"}`, borderRadius:8, padding:"10px 14px", fontSize:13, color: partialError ? "var(--rose)" : "#f87171", marginBottom:10}}>
               {partialError ? "⚡ " : "⚠️ "}{error}
             </div>
           )}
 
-          {generating && generatedCards.length > 0 && (
+          {/* Status line during generation */}
+          {generating && chunkProgress?.phase === "compiling" && (
+            <div style={{fontSize:11.5, color:"var(--accent)", marginBottom:8, textAlign:"center", display:"flex", alignItems:"center", justifyContent:"center", gap:5}}>
+              <Icon name="sparkle" size={11}/> Refinando {generatedCards.length} cards com Llama Scout…
+            </div>
+          )}
+          {generating && chunkProgress?.phase === "chunks" && generatedCards.length > 0 && (
             <div style={{fontSize:11.5, color:"var(--text-mute)", marginBottom:8, textAlign:"center"}}>
-              {generatedCards.length} card{generatedCards.length !== 1 ? "s" : ""} gerado{generatedCards.length !== 1 ? "s" : ""} até agora…
+              {generatedCards.length} card{generatedCards.length !== 1 ? "s" : ""} extraído{generatedCards.length !== 1 ? "s" : ""} até agora…
             </div>
           )}
 
+          {/* Shimmer skeletons while waiting for first cards */}
           {generating && generatedCards.length === 0 && (
             <>
               {[1,2,3].map(i => (
