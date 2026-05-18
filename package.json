@@ -1,0 +1,102 @@
+{
+  "name": "danki-ai",
+  "version": "1.0.0",
+  "description": "Danki AI — Flashcards inteligentes",
+  "main": "electron/main.js",
+  "scripts": {
+    "icons": "node scripts/generate-icons.js",
+    "start": "electron .",
+    "build:win": "npm run icons && electron-builder --win",
+    "build:mac": "npm run icons && electron-builder --mac",
+    "build:all": "npm run icons && electron-builder --win --mac",
+    "dist": "npm run icons && electron-builder --win --mac --x64"
+  },
+  "author": "Danki AI",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "sharp": "^0.34.5"
+  },
+  "build": {
+    "appId": "com.danki.flashcards",
+    "productName": "Danki AI",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "index.html",
+      "styles.css",
+      "app.jsx",
+      "components.jsx",
+      "supabase.jsx",
+      "library-data.js",
+      "screens-*.jsx",
+      "landing.html",
+      "config.local.js.example",
+      "CLAUDE.md"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "electron/assets/icon.png",
+      "artifactName": "${productName}-Setup-${version}-win-x64.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Danki AI"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "electron/assets/icon.png",
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
+      "category": "public.app-category.education"
+    },
+    "dmg": {
+      "title": "Danki AI ${version}",
+      "icon": "electron/assets/icon.png",
+      "iconSize": 128,
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 480
+      }
+    }
+  }
+}
