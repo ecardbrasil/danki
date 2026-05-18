@@ -842,7 +842,13 @@ const AICreateScreen = ({ onSave }) => {
               ) : (
                 <select
                   className="btn"
-                  style={{padding:"5px 10px"}}
+                  style={{
+                    padding: "5px 10px",
+                    maxWidth: "250px",         // Ajuste este valor conforme o espaço do seu layout
+                    textOverflow: "ellipsis",  // Adiciona os '...' no final
+                    overflow: "hidden",        // Esconde o que passar do maxWidth
+                    whiteSpace: "nowrap"       // Impede a quebra de linha
+                  }}
                   value={deckId}
                   onChange={e => setDeckId(e.target.value)}
                 >
