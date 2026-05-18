@@ -6,7 +6,83 @@ const GROQ_API_KEY = "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";
 const GROQ_MODEL = "llama-3.1-8b-instant";
 console.log("[Danki] screens-ai-create.jsx loaded — key prefix:", GROQ_API_KEY.slice(0, 12), "len:", GROQ_API_KEY.length);
 
-const generateFlashcardsWithGroq = async (text, count, style, language) => {
+const GROQ_CHUNK_SIZE = 10000;
+const GROQ_CHUNK_DELAY = 5000;
+const GROQ_RETRY_DELAY = 20000;
+const GROQ_MAX_RETRIES = 3;
+
+const delay = (ms) => new Promise(res => setTimeout(res, ms));
+
+const splitIntoChunks = (text, maxChars = GROQ_CHUNK_SIZE) => {
+  const paragraphs = text.split('\n');
+  const chunks = [];
+  let current = '';
+  for (const p of paragraphs) {
+    if (current.length + p.length < maxChars) {
+      current += p + '\n';
+    } else {
+      if (current.trim()) chunks.push(current.trim());
+      current = p + '\n';
+    }
+  }
+  if (current.trim()) chunks.push(current.trim());
+  return chunks.length > 0 ? chunks : [text];
+};
+
+const callGroqChunk = async (prompt, signal) => {
+  let retries = 0;
+  while (retries < GROQ_MAX_RETRIES) {
+    if (signal?.aborted) throw new DOMException("Cancelado pelo usuário.", "AbortError");
+
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      signal,
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 2000,
+        temperature: 0.4,
+        response_format: { type: "json_object" },
+      }),
+    });
+
+    if (response.status === 429) {
+      retries++;
+      if (retries >= GROQ_MAX_RETRIES) throw new Error("Limite de uso da IA atingido. Aguarde um minuto e tente novamente.");
+      await delay(GROQ_RETRY_DELAY);
+      continue;
+    }
+
+    if (response.status === 413) {
+      throw new Error("Texto muito longo para o plano atual da IA. Tente com um texto mais curto.");
+    }
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error?.message || "Erro na API do Groq");
+    }
+
+    const data = await response.json();
+    const raw = data.choices?.[0]?.message?.content || "";
+
+    const arrMatch = raw.match(/\[[\s\S]*\]/);
+    if (arrMatch) return JSON.parse(arrMatch[0]);
+
+    try {
+      const obj = JSON.parse(raw);
+      if (obj.cards && Array.isArray(obj.cards)) return obj.cards;
+    } catch (_) {}
+
+    return [];
+  }
+  return [];
+};
+
+const generateFlashcardsWithGroq = async (text, count, style, language, onProgress, signal) => {
   const styleInstructions = {
     "Q&A clássico": "Crie perguntas diretas com respostas objetivas.",
     "Cloze (lacuna)": "Crie frases com uma palavra ou conceito-chave substituído por '___'. A resposta é a palavra removida.",
@@ -18,14 +94,23 @@ O campo "a" deve conter uma explicação curta do por que a resposta correta est
   };
 
   const isMultipleChoice = style === "Múltipla escolha";
+  const chunks = splitIntoChunks(text);
+  const isMultiChunk = chunks.length > 1;
+  const allCards = [];
 
-  const prompt = `Você é um especialista em educação e criação de flashcards para memorização espaçada (SRS).
+  for (let i = 0; i < chunks.length; i++) {
+    if (signal?.aborted) break;
+    if (onProgress) onProgress({ current: i + 1, total: chunks.length });
 
-Analise o texto abaixo e gere exatamente ${count} flashcards em ${language}.
+    const cardsPerChunk = isMultiChunk ? Math.max(3, Math.ceil(count / chunks.length)) : count;
+
+    const prompt = `Você é um especialista em educação e criação de flashcards para memorização espaçada (SRS).
+
+Analise o texto abaixo e gere ${isMultiChunk ? `até ${cardsPerChunk} flashcards com os conceitos mais importantes` : `exatamente ${count} flashcards`} em ${language}.
 Estilo: ${styleInstructions[style] || styleInstructions["Q&A clássico"]}
 
-Retorne APENAS um JSON válido, sem texto adicional, neste formato:
-[
+Retorne APENAS um JSON válido com a chave "cards", neste formato:
+{ "cards": [
   {${isMultipleChoice ? `
     "q": "pergunta de múltipla escolha",
     "options": ["a) alternativa 1", "b) alternativa 2", "c) alternativa 3"],
@@ -39,40 +124,19 @@ Retorne APENAS um JSON válido, sem texto adicional, neste formato:
     "tag": "categoria do conceito (1-2 palavras)",
     "diff": número de 1 a 5 indicando dificuldade estimada`}
   }
-]
+] }
 
 Texto para analisar:
-${text}`;
+${chunks[i]}`;
 
-  const response = await fetch(
-    "https://api.groq.com/openai/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${GROQ_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: GROQ_MODEL,
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 4096,
-        temperature: 0.4,
-      }),
-    }
-  );
+    const cards = await callGroqChunk(prompt, signal);
+    allCards.push(...cards);
+    if (onProgress) onProgress({ current: i + 1, total: chunks.length, partialCards: allCards });
 
-  if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.error?.message || "Erro na API do Groq");
+    if (i < chunks.length - 1 && !signal?.aborted) await delay(GROQ_CHUNK_DELAY);
   }
 
-  const data = await response.json();
-  const raw = data.choices?.[0]?.message?.content || "";
-
-  const match = raw.match(/\[[\s\S]*\]/);
-  if (!match) throw new Error("Resposta inválida da IA — JSON não encontrado");
-
-  return JSON.parse(match[0]);
+  return allCards;
 };
 
 const extractVideoId = (url) => {
@@ -192,7 +256,10 @@ const AICreateScreen = ({ onSave }) => {
   const [linkLoading, setLinkLoading] = React.useState(false);
   const [linkError, setLinkError] = React.useState(null);
   const [linkMeta, setLinkMeta] = React.useState(null);
+  const [chunkProgress, setChunkProgress] = React.useState(null);
+  const [partialError, setPartialError] = React.useState(false);
   const fileInputRef = React.useRef(null);
+  const abortControllerRef = React.useRef(null);
 
   React.useEffect(() => {
     fetchDecksSimple()
@@ -202,6 +269,23 @@ const AICreateScreen = ({ onSave }) => {
       })
       .catch(() => {});
   }, []);
+
+  React.useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (generating) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [generating]);
+
+  const cancelGeneration = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  };
 
   const handlePdfFile = async (file) => {
     if (!file || file.type !== "application/pdf") {
@@ -311,22 +395,55 @@ const AICreateScreen = ({ onSave }) => {
       return;
     }
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setGenerating(true);
     setGenerated(false);
     setError(null);
+    setPartialError(false);
+    setChunkProgress(null);
+    setGeneratedCards([]);
+
+    let latestCards = [];
+    let lastChunk = null;
+
     try {
       const cards = source === "link"
         ? await generateFlashcardsFromUrl(content, count, style, language, urlMeta)
-        : await generateFlashcardsWithGroq(content, count, style, language);
-      setGeneratedCards(cards);
-      setGenerated(true);
+        : await generateFlashcardsWithGroq(content, count, style, language, (p) => {
+            lastChunk = p;
+            setChunkProgress(p);
+            if (p.partialCards) {
+              latestCards = p.partialCards;
+              setGeneratedCards([...p.partialCards]);
+            }
+          }, controller.signal);
 
-      const allDecks = decks.length > 0 ? decks : await fetchDecksSimple().catch(() => []);
-      setRelatedCards(buildRelatedSuggestions(cards, allDecks, deckId));
+      if (!controller.signal.aborted) {
+        latestCards = cards;
+        setGeneratedCards(cards);
+        setGenerated(true);
+        const allDecks = decks.length > 0 ? decks : await fetchDecksSimple().catch(() => []);
+        setRelatedCards(buildRelatedSuggestions(cards, allDecks, deckId));
+      } else {
+        setGenerated(latestCards.length > 0);
+      }
     } catch (e) {
-      setError(e.message);
+      if (e.name === "AbortError") {
+        setGenerated(latestCards.length > 0);
+      } else {
+        const hasPartial = latestCards.length > 0;
+        setPartialError(hasPartial);
+        setError(hasPartial
+          ? `Erro na parte ${lastChunk?.current ?? "?"} — ${latestCards.length} cards gerados até aqui. Você pode salvá-los mesmo assim.`
+          : e.message);
+        setGenerated(hasPartial);
+      }
     } finally {
       setGenerating(false);
+      setChunkProgress(null);
+      abortControllerRef.current = null;
     }
   };
 
@@ -390,7 +507,7 @@ const AICreateScreen = ({ onSave }) => {
           <div className="ai-toolbar">
             <div className="ai-source">
               {["texto","pdf","link","áudio","imagem"].map(s => (
-                <button key={s} className={source===s?"active":""} onClick={() => setSource(s)}>
+                <button key={s} className={source===s?"active":""} onClick={() => !generating && setSource(s)} disabled={generating}>
                   {s.charAt(0).toUpperCase()+s.slice(1)}
                 </button>
               ))}
@@ -560,13 +677,13 @@ const AICreateScreen = ({ onSave }) => {
           <div className="ai-options">
             <span style={{fontSize:12, color:"var(--text-mute)", padding:"6px 0"}}>Estilo:</span>
             {["Q&A clássico","Cloze (lacuna)","Definição","Pergunta inversa","Múltipla escolha"].map(s => (
-              <button key={s} className={`ai-chip ${style===s?"active":""}`} onClick={() => setStyle(s)}>{s}</button>
+              <button key={s} className={`ai-chip ${style===s?"active":""}`} onClick={() => !generating && setStyle(s)} disabled={generating}>{s}</button>
             ))}
           </div>
           <div className="ai-options" style={{borderTop:"none", paddingTop:0}}>
             <span style={{fontSize:12, color:"var(--text-mute)", padding:"6px 0"}}>Idioma:</span>
             {["Português","Inglês","Japonês"].map(s => (
-              <button key={s} className={`ai-chip ${language===s?"active":""}`} onClick={() => setLanguage(s)}>{s}</button>
+              <button key={s} className={`ai-chip ${language===s?"active":""}`} onClick={() => !generating && setLanguage(s)} disabled={generating}>{s}</button>
             ))}
           </div>
 
@@ -606,8 +723,18 @@ const AICreateScreen = ({ onSave }) => {
                   ))}
                 </select>
               )}
+              {generating ? (
+                <button className="btn ghost" onClick={cancelGeneration} style={{color:"var(--rose)"}}>
+                  Cancelar
+                </button>
+              ) : null}
               <button className="btn primary" onClick={generate} disabled={generating}>
-                <Icon name="sparkle" size={13}/> {generating ? "Gerando…" : "Gerar cards"}
+                <Icon name="sparkle" size={13}/>
+                {generating
+                  ? chunkProgress && chunkProgress.total > 1
+                    ? `Parte ${chunkProgress.current} de ${chunkProgress.total}…`
+                    : "Gerando…"
+                  : "Gerar cards"}
               </button>
             </div>
           </div>
@@ -617,15 +744,36 @@ const AICreateScreen = ({ onSave }) => {
         <div className="ai-preview-panel">
           <h4>
             <Icon name="sparkle" size={14} className="sparkle"/>
-            Preview · {generated ? `${generatedCards.length} cards gerados` : generating ? "gerando…" : "aguardando"}
+            Preview · {generated ? `${generatedCards.length} cards gerados` : generating
+              ? chunkProgress && chunkProgress.total > 1
+                ? `Analisando parte ${chunkProgress.current} de ${chunkProgress.total}…`
+                : "gerando…"
+              : "aguardando"}
           </h4>
+          {generating && chunkProgress && chunkProgress.total > 1 && (
+            <div style={{height:3, borderRadius:2, background:"var(--surface-2)", overflow:"hidden", marginBottom:10}}>
+              <div style={{
+                height:"100%",
+                width:`${Math.round((chunkProgress.current / chunkProgress.total) * 100)}%`,
+                background:"var(--violet)",
+                borderRadius:2,
+                transition:"width .4s ease",
+              }}/>
+            </div>
+          )}
           {error && (
-            <div style={{background:"var(--surface-2)", border:"1px solid #f87171", borderRadius:8, padding:"10px 14px", fontSize:13, color:"#f87171", marginBottom:10}}>
-              ⚠️ {error}
+            <div style={{background:"var(--surface-2)", border:`1px solid ${partialError ? "var(--rose)" : "#f87171"}`, borderRadius:8, padding:"10px 14px", fontSize:13, color: partialError ? "var(--rose)" : "#f87171", marginBottom:10}}>
+              {partialError ? "⚡ " : "⚠️ "}{error}
             </div>
           )}
 
-          {generating && (
+          {generating && generatedCards.length > 0 && (
+            <div style={{fontSize:11.5, color:"var(--text-mute)", marginBottom:8, textAlign:"center"}}>
+              {generatedCards.length} card{generatedCards.length !== 1 ? "s" : ""} gerado{generatedCards.length !== 1 ? "s" : ""} até agora…
+            </div>
+          )}
+
+          {generating && generatedCards.length === 0 && (
             <>
               {[1,2,3].map(i => (
                 <div className="preview-card" key={i}>
