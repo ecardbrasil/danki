@@ -11,7 +11,7 @@ console.log("[Danki] screens-ai-create.jsx loaded — key prefix:", GROQ_API_KEY
 const GROQ_MODELS = {
   fast: {
     id: "llama-3.1-8b-instant",
-    maxTokens: 2000,  // 10K chars input (~2500 tok) + 2000 output = ~4500 total < 6K TPM ✓
+    maxTokens: 1500,  // 7K chars input (~2300 tok) + 1500 output = ~3800 total < 6K TPM ✓
     tpm: 6000,
     label: "Llama 8B",
   },
@@ -25,8 +25,8 @@ const GROQ_MODELS = {
 
 // Texts ≤ this threshold go to "smart" in a single call (no chunking)
 const GROQ_SINGLE_THRESHOLD = 25000;
-// Max chars per chunk sent to "fast" model
-const GROQ_CHUNK_SIZE = 10000;
+// Max chars per chunk sent to "fast" model — must be hard-respected, never exceeded
+const GROQ_CHUNK_SIZE = 7000;
 // Fallback retry wait when no x-ratelimit-reset-tokens header is present
 const GROQ_RETRY_DELAY = 20000;
 const GROQ_MAX_RETRIES = 3;
@@ -61,21 +61,41 @@ const parseCardsFromRaw = (raw) => {
   return [];
 };
 
-// Split text at paragraph boundaries, respecting GROQ_CHUNK_SIZE
+// Split text into chunks that NEVER exceed maxChars. Breaks at the best natural
+// boundary (paragraph > sentence > word) within the second half of each window,
+// falling back to a hard char cut if no boundary exists (e.g. PDF dumps with no
+// whitespace). This guarantees no chunk blows past the model's TPM budget.
 const splitIntoChunks = (text, maxChars = GROQ_CHUNK_SIZE) => {
-  const paragraphs = text.split('\n');
+  if (!text) return [];
+  if (text.length <= maxChars) return [text];
+
   const chunks = [];
-  let current = '';
-  for (const p of paragraphs) {
-    if (current.length + p.length < maxChars) {
-      current += p + '\n';
-    } else {
-      if (current.trim()) chunks.push(current.trim());
-      current = p + '\n';
+  let i = 0;
+  while (i < text.length) {
+    let end = Math.min(i + maxChars, text.length);
+    if (end < text.length) {
+      const slice = text.slice(i, end);
+      const minBreak = Math.floor(maxChars * 0.5);
+      const lastPara = slice.lastIndexOf('\n\n');
+      const lastNewline = slice.lastIndexOf('\n');
+      const lastSentence = Math.max(
+        slice.lastIndexOf('. '),
+        slice.lastIndexOf('! '),
+        slice.lastIndexOf('? '),
+      );
+      const lastSpace = slice.lastIndexOf(' ');
+      let breakAt = -1;
+      if (lastPara > minBreak) breakAt = lastPara + 2;
+      else if (lastNewline > minBreak) breakAt = lastNewline + 1;
+      else if (lastSentence > minBreak) breakAt = lastSentence + 2;
+      else if (lastSpace > minBreak) breakAt = lastSpace + 1;
+      if (breakAt > 0) end = i + breakAt;
     }
+    const piece = text.slice(i, end).trim();
+    if (piece) chunks.push(piece);
+    i = end;
   }
-  if (current.trim()) chunks.push(current.trim());
-  return chunks.length > 0 ? chunks : [text];
+  return chunks.length > 0 ? chunks : [text.slice(0, maxChars)];
 };
 
 // Build the flashcard generation prompt for a text chunk
