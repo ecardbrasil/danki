@@ -2,49 +2,17 @@
 // SCREEN: AI CARD CREATION
 // =========================================================================
 
-const GROQ_API_KEY = "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";
-console.log("[Danki] screens-ai-create.jsx loaded — key prefix:", GROQ_API_KEY.slice(0, 12), "len:", GROQ_API_KEY.length);
+// Load API key from environment variable or localStorage
+const GEMINI_API_KEY = window.GEMINI_API_KEY || localStorage.getItem("gemini_api_key") || "";
+const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`;
 
-// ── Model configuration (Groq free-tier limits, May 2025) ──────────────────
-// fast : llama-3.1-8b-instant  — 6K TPM, 14.4K RPD  → bulk chunk extraction
-// smart: llama-4-scout-17b    — 30K TPM,  1K RPD  → single calls + compilation
-const GROQ_MODELS = {
-  fast: {
-    id: "llama-3.1-8b-instant",
-    maxTokens: 1500,  // 7K chars input (~2300 tok) + 1500 output = ~3800 total < 6K TPM ✓
-    tpm: 6000,
-    label: "Llama 8B",
-  },
-  smart: {
-    id: "meta-llama/llama-4-scout-17b-16e-instruct",
-    maxTokens: 8000,  // 25K chars input (~6250 tok) + 8000 output = ~14250 total < 30K TPM ✓
-    tpm: 30000,
-    label: "Llama Scout",
-  },
-};
-
-// Texts ≤ this threshold go to "smart" in a single call (no chunking)
-const GROQ_SINGLE_THRESHOLD = 25000;
-// Max chars per chunk sent to "fast" model — must be hard-respected, never exceeded
-const GROQ_CHUNK_SIZE = 7000;
-// Fallback retry wait when no x-ratelimit-reset-tokens header is present
-const GROQ_RETRY_DELAY = 20000;
-const GROQ_MAX_RETRIES = 3;
+const GEMINI_MAX_RETRIES = 3;
+const GEMINI_RETRY_DELAY = 5000;
 
 const delay = (ms) => new Promise(res => setTimeout(res, ms));
 
-// Parse Groq's x-ratelimit-reset-tokens header ("7.66s", "1m30.5s") → ms
-const parseResetMs = (resetStr) => {
-  if (!resetStr) return 0;
-  let ms = 0;
-  const minMatch = resetStr.match(/(\d+)m/);
-  const secMatch = resetStr.match(/([\d.]+)s/);
-  if (minMatch) ms += parseInt(minMatch[1]) * 60000;
-  if (secMatch) ms += parseFloat(secMatch[1]) * 1000;
-  return ms;
-};
-
-// Robustly extract a cards array from any Groq response content
+// Robustly extract a cards array from any Gemini response content
 const parseCardsFromRaw = (raw) => {
   if (!raw) return [];
   // Try bare JSON array first (legacy / non-json_object mode)
@@ -61,11 +29,9 @@ const parseCardsFromRaw = (raw) => {
   return [];
 };
 
-// Split text into chunks that NEVER exceed maxChars. Breaks at the best natural
-// boundary (paragraph > sentence > word) within the second half of each window,
-// falling back to a hard char cut if no boundary exists (e.g. PDF dumps with no
-// whitespace). This guarantees no chunk blows past the model's TPM budget.
-const splitIntoChunks = (text, maxChars = GROQ_CHUNK_SIZE) => {
+// REMOVED: splitIntoChunks — Gemini 2.5 Flash has 1M token context window,
+// no chunking needed.
+const splitIntoChunks_UNUSED = (text, maxChars = 7000) => {
   if (!text) return [];
   if (text.length <= maxChars) return [text];
 
@@ -101,19 +67,50 @@ const splitIntoChunks = (text, maxChars = GROQ_CHUNK_SIZE) => {
 // Build the flashcard generation prompt for a text chunk
 const buildChunkPrompt = (chunk, count, style, language, isMultipleChoice, isPartial) => {
   const styleInstructions = {
-    "Q&A clássico": "Crie perguntas diretas com respostas objetivas.",
-    "Cloze (lacuna)": "Crie frases com uma palavra ou conceito-chave substituído por '___'. A resposta é a palavra removida.",
-    "Definição": "Crie flashcards no formato 'Termo: Definição'.",
-    "Pergunta inversa": "Dê a resposta/conceito na frente e peça que o aluno identifique o termo/pergunta.",
+    "Q&A clássico": `Crie perguntas diretas com respostas objetivas e verificáveis.
+Formule a pergunta de forma inequívoca: prefira "Por que", "Como", "Qual a diferença entre", "Qual o efeito de" em vez de perguntas genéricas como "O que é X?".
+A resposta deve ser completa em 1–2 frases, sem depender de contexto externo.`,
+    "Cloze (lacuna)": `Crie frases com uma palavra ou conceito-chave substituído por '___'. A resposta é a palavra removida.
+A lacuna deve ser o termo técnico ou conceito central — nunca uma palavra trivial ou artigo.
+A frase de contexto deve ser suficiente para recuperar a resposta sem ambiguidade.`,
+    "Definição": `Crie flashcards no formato 'Termo: Definição'.
+O termo deve ser específico (não genérico). A definição deve distingui-lo de termos similares, incluindo o que o caracteriza de forma única.`,
+    "Pergunta inversa": `A frente do card deve conter a definição, descrição ou efeito; o verso deve conter o termo exato.
+Formule de modo que apenas um termo seja a resposta correta — evite descrições que se encaixem em múltiplos conceitos.`,
     "Múltipla escolha": `Crie perguntas de múltipla escolha com exatamente 3 alternativas.
 Cada card deve ter os campos extras: "options" (array com 3 strings no formato ["a) ...", "b) ...", "c) ..."]), "answer" (a letra correta: "a", "b" ou "c"), e "type": "multiple_choice".
-O campo "a" deve conter uma explicação curta do por que a resposta correta está certa.`,
+Os distratores (alternativas erradas) devem ser plausíveis e relacionados ao tema — nunca obviamente errados.
+O campo "a" deve explicar por que a resposta correta está certa E por que as demais estão erradas.`,
   };
+
+  const fewShotExamples = {
+    "Q&A clássico": `Exemplo de card de alta qualidade:
+{ "q": "Por que a mitocôndria possui DNA próprio e ribossomos 70S?", "a": "Evidências da teoria endossimbiótica: a mitocôndria descende de uma bactéria ancestral fagocitada, tendo preservado seu material genético e maquinaria de síntese proteica independente.", "tag": "biologia celular", "diff": 3 }`,
+    "Cloze (lacuna)": `Exemplo de card de alta qualidade:
+{ "q": "A ___ é o processo pelo qual as plantas convertem CO₂ e água em glicose usando energia luminosa.", "a": "fotossíntese", "tag": "botânica", "diff": 1 }`,
+    "Definição": `Exemplo de card de alta qualidade:
+{ "q": "Osmose", "a": "Difusão espontânea de água através de uma membrana semipermeável, do meio hipotônico (menor concentração de soluto) para o hipertônico, até atingir equilíbrio.", "tag": "fisiologia", "diff": 2 }`,
+    "Pergunta inversa": `Exemplo de card de alta qualidade:
+{ "q": "Fenômeno em que um metal perde elétrons para outro em solução, gerando corrente elétrica espontânea.", "a": "Pilha eletroquímica (célula galvânica)", "tag": "eletroquímica", "diff": 3 }`,
+    "Múltipla escolha": `Exemplo de card de alta qualidade:
+{ "q": "Qual hormônio é responsável pela reabsorção de sódio nos túbulos renais?", "options": ["a) Aldosterona", "b) ADH (vasopressina)", "c) Cortisol"], "answer": "a", "a": "A aldosterona age nos túbulos distais e coletores aumentando canais de sódio. O ADH regula reabsorção de água, não sódio. O cortisol tem efeito mineralocorticoide fraco e não é o principal regulador.", "tag": "fisiologia renal", "diff": 3, "type": "multiple_choice" }`,
+  };
+
+  const currentStyle = styleInstructions[style] ? style : "Q&A clássico";
 
   return `Você é um especialista em educação e criação de flashcards para memorização espaçada (SRS).
 
+Princípios obrigatórios para flashcards de alta qualidade:
+- Um único conceito por card (atomicidade)
+- Pergunta testável: deve haver uma resposta clara e única
+- Evite perguntas vagas como "O que é X?" — prefira "Qual a função de X em Y?" ou "Por que X causa Y?"
+- Resposta concisa (1–2 frases); apenas o essencial para responder à pergunta
+- Prefira perguntas que testam compreensão e aplicação, não apenas memorização de definição
+
 Analise o texto abaixo e gere ${isPartial ? `até ${count} flashcards com os conceitos mais importantes` : `exatamente ${count} flashcards`} em ${language}.
-Estilo: ${styleInstructions[style] || styleInstructions["Q&A clássico"]}
+Estilo: ${styleInstructions[currentStyle]}
+
+${fewShotExamples[currentStyle]}
 
 Retorne APENAS um JSON válido com a chave "cards", neste formato:
 { "cards": [
@@ -121,7 +118,7 @@ Retorne APENAS um JSON válido com a chave "cards", neste formato:
     "q": "pergunta de múltipla escolha",
     "options": ["a) alternativa 1", "b) alternativa 2", "c) alternativa 3"],
     "answer": "a",
-    "a": "explicação da resposta correta",
+    "a": "explicação da resposta correta e por que as demais estão erradas",
     "tag": "categoria do conceito (1-2 palavras)",
     "diff": número de 1 a 5 indicando dificuldade estimada,
     "type": "multiple_choice"` : `
@@ -137,139 +134,62 @@ ${chunk}`;
 };
 
 // ── Core API function ──────────────────────────────────────────────────────
-// Sends one request to Groq, handles 429/413/errors, reads rate-limit headers.
-// Returns { cards, remainingTokens, resetStr } so callers can pace themselves.
-const callGroq = async (prompt, modelKey, signal) => {
-  const cfg = GROQ_MODELS[modelKey] || GROQ_MODELS.fast;
+// Sends one request to Gemini via OpenAI-compatible endpoint, handles retries.
+const callGemini = async (prompt, signal, temperature = 0.4) => {
   let retries = 0;
 
-  while (retries < GROQ_MAX_RETRIES) {
+  while (retries < GEMINI_MAX_RETRIES) {
     if (signal?.aborted) throw new DOMException("Cancelado pelo usuário.", "AbortError");
 
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const response = await fetch(GEMINI_API_URL, {
       method: "POST",
       signal,
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${GROQ_API_KEY}`,
+        "Authorization": `Bearer ${GEMINI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: cfg.id,
+        model: GEMINI_MODEL,
         messages: [{ role: "user", content: prompt }],
-        max_tokens: cfg.maxTokens,
-        temperature: 0.4,
+        temperature,
         response_format: { type: "json_object" },
       }),
     });
 
-    // Read rate-limit headers before consuming the body
-    const remainingTokens = parseInt(response.headers.get("x-ratelimit-remaining-tokens") || cfg.tpm);
-    const resetStr = response.headers.get("x-ratelimit-reset-tokens") || "";
-
     if (response.status === 429) {
       retries++;
-      if (retries >= GROQ_MAX_RETRIES) {
+      if (retries >= GEMINI_MAX_RETRIES) {
         throw new Error("Limite de uso da IA atingido. Aguarde alguns segundos e tente novamente.");
       }
-      // Use the exact reset time from the header — no guessing
-      const waitMs = parseResetMs(resetStr) || GROQ_RETRY_DELAY;
-      await delay(waitMs + 500); // +500ms safety buffer
+      await delay(GEMINI_RETRY_DELAY * retries);
       continue;
-    }
-
-    if (response.status === 413) {
-      throw new Error("Texto muito longo para o plano atual da IA. Tente com um trecho menor.");
     }
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
-      throw new Error(err.error?.message || `Erro na API Groq (${response.status})`);
+      throw new Error(err.error?.message || `Erro na API Gemini (${response.status})`);
     }
 
     const data = await response.json();
     const raw = data.choices?.[0]?.message?.content || "";
     const cards = parseCardsFromRaw(raw);
-    return { cards, remainingTokens, resetStr };
+    return { cards };
   }
 
-  return { cards: [], remainingTokens: 0, resetStr: "" };
+  return { cards: [] };
 };
 
 // ── Main generation orchestrator ───────────────────────────────────────────
-// Routing logic:
-//   text ≤ 25K chars → single "smart" call (Llama Scout, 30K TPM)
-//   text >  25K chars → chunk with "fast" (Llama 8B, 6K TPM) + compile with "smart"
-const generateFlashcardsWithGroq = async (text, count, style, language, onProgress, signal) => {
+// Gemini 2.5 Flash has 1M token context window — entire text in one call, no chunking.
+const generateFlashcardsWithGemini = async (text, count, style, language, onProgress, signal) => {
   const isMultipleChoice = style === "Múltipla escolha";
+  const genTemperature = isMultipleChoice ? 0.3 : 0.4;
 
-  // ── SHORT PATH: one smart call ────────────────────────────────────────────
-  if (text.length <= GROQ_SINGLE_THRESHOLD) {
-    if (onProgress) onProgress({ current: 1, total: 1, phase: "generating", model: "smart" });
-    const prompt = buildChunkPrompt(text, count, style, language, isMultipleChoice, false);
-    const { cards } = await callGroq(prompt, "smart", signal);
-    if (onProgress) onProgress({ current: 1, total: 1, partialCards: cards, phase: "done", model: "smart" });
-    return cards;
-  }
-
-  // ── LONG PATH: chunk extraction + compilation ─────────────────────────────
-  const chunks = splitIntoChunks(text);
-  const totalSteps = chunks.length + 1; // last step = compilation
-  const allRawCards = [];
-
-  for (let i = 0; i < chunks.length; i++) {
-    if (signal?.aborted) break;
-
-    if (onProgress) onProgress({ current: i + 1, total: totalSteps, phase: "chunks", model: "fast" });
-
-    // Generate 50% more cards than needed so compilation has good material to pick from
-    const cardsPerChunk = Math.max(3, Math.min(Math.ceil(count * 1.5 / chunks.length), 10));
-    const prompt = buildChunkPrompt(chunks[i], cardsPerChunk, style, language, isMultipleChoice, true);
-    const { cards, remainingTokens, resetStr } = await callGroq(prompt, "fast", signal);
-
-    allRawCards.push(...cards);
-    if (onProgress) onProgress({ current: i + 1, total: totalSteps, partialCards: allRawCards, phase: "chunks", model: "fast" });
-
-    if (i < chunks.length - 1 && !signal?.aborted) {
-      // Adaptive pacing: if the token bucket is nearly empty, wait for the exact
-      // reset time from the response header instead of a fixed sleep
-      if (remainingTokens < 3000) {
-        const waitMs = parseResetMs(resetStr) || GROQ_RETRY_DELAY;
-        await delay(waitMs + 500);
-      } else {
-        await delay(800); // minimal polite delay when tokens are plentiful
-      }
-    }
-  }
-
-  if (signal?.aborted || allRawCards.length === 0) return allRawCards;
-
-  // ── COMPILATION: deduplicate + improve using smart model ─────────────────
-  if (onProgress) onProgress({ current: totalSteps, total: totalSteps, partialCards: allRawCards, phase: "compiling", model: "smart" });
-
-  const compilationPrompt = `Você é um especialista em educação e criação de flashcards para memorização espaçada (SRS).
-
-Abaixo estão flashcards brutos extraídos de diferentes partes de um texto. Sua tarefa:
-1. Elimine duplicatas (cards que cobrem o mesmo conceito)
-2. Melhore a clareza e objetividade dos cards restantes
-3. Selecione os ${count} cards mais relevantes, variados e pedagogicamente ricos
-4. Preserve todos os campos originais${isMultipleChoice ? " (q, options, answer, a, tag, diff, type)" : " (q, a, tag, diff)"}
-5. Retorne em ${language}
-
-Retorne APENAS um JSON válido com a chave "cards":
-{ "cards": [...] }
-
-Cards brutos para revisar:
-${JSON.stringify({ cards: allRawCards })}`;
-
-  try {
-    const { cards: compiled } = await callGroq(compilationPrompt, "smart", signal);
-    // Sanity check: if compilation returned too few cards, fall back to raw
-    return compiled.length >= Math.min(3, count) ? compiled : allRawCards.slice(0, count);
-  } catch (e) {
-    if (e.name === "AbortError") throw e;
-    // Compilation failed — return best raw cards trimmed to requested count
-    return allRawCards.slice(0, count);
-  }
+  if (onProgress) onProgress({ current: 1, total: 1, phase: "generating", model: "smart" });
+  const prompt = buildChunkPrompt(text, count, style, language, isMultipleChoice, false);
+  const { cards } = await callGemini(prompt, signal, genTemperature);
+  if (onProgress) onProgress({ current: 1, total: 1, partialCards: cards, phase: "done", model: "smart" });
+  return cards;
 };
 
 // ── URL / YouTube generation ───────────────────────────────────────────────
@@ -325,7 +245,7 @@ Conteúdo:
 ${content.slice(0, 22000)}`;
 
   if (onProgress) onProgress({ current: 1, total: 1, phase: "generating", model: "smart" });
-  const { cards } = await callGroq(prompt, "smart", signal);
+  const { cards } = await callGemini(prompt, signal);
   if (onProgress) onProgress({ current: 1, total: 1, partialCards: cards, phase: "done", model: "smart" });
   return cards;
 };
@@ -601,7 +521,7 @@ const AICreateScreen = ({ onSave }) => {
 
       const cards = source === "link"
         ? await generateFlashcardsFromUrl(content, count, style, language, urlMeta, onProgress, controller.signal)
-        : await generateFlashcardsWithGroq(content, count, style, language, onProgress, controller.signal);
+        : await generateFlashcardsWithGemini(content, count, style, language, onProgress, controller.signal);
 
       if (!controller.signal.aborted) {
         latestCards = cards;
