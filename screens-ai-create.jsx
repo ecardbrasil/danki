@@ -2,8 +2,8 @@
 // SCREEN: AI CARD CREATION
 // =========================================================================
 
-// Load API key from environment variable or localStorage
-const GEMINI_API_KEY = window.GEMINI_API_KEY || localStorage.getItem("gemini_api_key") || "";
+// Load API key from config.local.js or localStorage
+const GEMINI_API_KEY = window.DANKI_CONFIG?.GEMINI_API_KEY || localStorage.getItem("gemini_api_key") || "";
 const GEMINI_MODEL = "gemini-2.5-flash";
 const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`;
 
