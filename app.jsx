@@ -25,6 +25,8 @@ const SCREEN_CRUMBS = {
 function App() {
   const [user, setUser]     = React.useState(undefined); // undefined = carregando
   const [screen, setScreen] = React.useState("dashboard");
+  const [authMode, setAuthMode] = React.useState("login"); // "login" | "signup"
+  const [showAuth, setShowAuth] = React.useState(false);
   const [studyDeckId, setStudyDeckId] = React.useState(null);
   const [editorDeckId, setEditorDeckId] = React.useState(null);
   const [appStats, setAppStats] = React.useState({ streak: 0, deckCount: 0, totalDue: 0 });
@@ -68,9 +70,14 @@ function App() {
     );
   }
 
-  // Não autenticado → tela de auth
+  // Não autenticado → landing page ou tela de auth
   if (!user) {
-    return <AuthScreen onAuth={setUser} />;
+    if (showAuth) {
+      return <AuthScreen onAuth={(u) => { setUser(u); setShowAuth(false); }} initialMode={authMode} onBack={() => setShowAuth(false)} />;
+    }
+    return (
+      <LandingScreen onGoAuth={(mode) => { setAuthMode(mode); setShowAuth(true); }} />
+    );
   }
 
   // Autenticado → app principal

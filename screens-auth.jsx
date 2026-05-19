@@ -1,8 +1,8 @@
 // =========================================================================
 // SCREEN: AUTH — Login e Cadastro
 // =========================================================================
-const AuthScreen = ({ onAuth }) => {
-  const [mode, setMode]       = React.useState("login"); // "login" | "signup"
+const AuthScreen = ({ onAuth, initialMode = "login", onBack }) => {
+  const [mode, setMode]       = React.useState(initialMode); // "login" | "signup"
   const [email, setEmail]     = React.useState("");
   const [password, setPass]   = React.useState("");
   const [name, setName]       = React.useState("");
@@ -79,6 +79,24 @@ const AuthScreen = ({ onAuth }) => {
         animation: "stagger-up .5s var(--ease-out) both",
         position: "relative",
       }}>
+        {/* Voltar para landing */}
+        {onBack && (
+          <button
+            onClick={onBack}
+            style={{
+              position: "absolute", top: 16, left: 16,
+              background: "none", border: "none", cursor: "pointer",
+              color: "var(--text-mute)", fontSize: 13,
+              display: "flex", alignItems: "center", gap: 4, padding: "4px 8px",
+              borderRadius: 6, transition: "color .15s",
+            }}
+            onMouseEnter={e => e.currentTarget.style.color = "var(--text)"}
+            onMouseLeave={e => e.currentTarget.style.color = "var(--text-mute)"}
+          >
+            ← Voltar
+          </button>
+        )}
+
         {/* Logo */}
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <div style={{
