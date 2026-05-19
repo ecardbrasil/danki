@@ -376,6 +376,10 @@ const AICreateScreen = ({ onSave }) => {
   const [linkMeta, setLinkMeta] = React.useState(null);
   const [chunkProgress, setChunkProgress] = React.useState(null);
   const [partialError, setPartialError] = React.useState(false);
+  const [waitMsgIndex, setWaitMsgIndex] = React.useState(0);
+  const [chunkTimes, setChunkTimes] = React.useState([]);
+  const [lastChunkStart, setLastChunkStart] = React.useState(null);
+  const [prevCardCount, setPrevCardCount] = React.useState(0);
   const fileInputRef = React.useRef(null);
   const abortControllerRef = React.useRef(null);
 
@@ -399,6 +403,46 @@ const AICreateScreen = ({ onSave }) => {
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [generating]);
+
+  // Rotating wait messages while no cards have appeared yet
+  const WAIT_MESSAGES = [
+    "Lendo o conteúdo…",
+    "Identificando conceitos-chave…",
+    "Montando perguntas relevantes…",
+    "Calibrando a dificuldade…",
+    "Quase lá…",
+  ];
+  React.useEffect(() => {
+    if (!generating || generatedCards.length > 0) return;
+    setWaitMsgIndex(0);
+    const id = setInterval(() => {
+      setWaitMsgIndex(i => (i + 1) % WAIT_MESSAGES.length);
+    }, 2800);
+    return () => clearInterval(id);
+  }, [generating, generatedCards.length > 0]);
+
+  // Track which cards are "new" for text-reveal animation
+  React.useEffect(() => {
+    if (!generating) setPrevCardCount(0);
+    else setPrevCardCount(generatedCards.length);
+  }, [generatedCards.length]);
+
+  // Play a soft two-note chime when generation completes
+  const playDoneSound = () => {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.setValueAtTime(523, ctx.currentTime);
+      osc.frequency.setValueAtTime(659, ctx.currentTime + 0.12);
+      gain.gain.setValueAtTime(0.12, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.45);
+    } catch (_) {}
+  };
 
   const cancelGeneration = () => {
     if (abortControllerRef.current) {
@@ -523,13 +567,30 @@ const AICreateScreen = ({ onSave }) => {
     setPartialError(false);
     setChunkProgress(null);
     setGeneratedCards([]);
+    setChunkTimes([]);
+    setLastChunkStart(Date.now());
+    setPrevCardCount(0);
 
     // Local vars track latest state reliably inside catch (no stale closure)
     let latestCards = [];
     let lastChunk = null;
+    let localChunkTimes = [];
+    let localLastChunkStart = Date.now();
 
     try {
       const onProgress = (p) => {
+        const now = Date.now();
+        // Record time when a chunk finishes (phase "chunks" and current advances)
+        if (p.phase === "chunks" && lastChunk?.phase === "chunks" && p.current > lastChunk.current) {
+          const elapsed = now - localLastChunkStart;
+          localChunkTimes = [...localChunkTimes, elapsed];
+          setChunkTimes([...localChunkTimes]);
+          localLastChunkStart = now;
+          setLastChunkStart(now);
+        } else if (p.phase === "chunks" && lastChunk?.phase !== "chunks") {
+          localLastChunkStart = now;
+          setLastChunkStart(now);
+        }
         lastChunk = p;
         setChunkProgress(p);
         if (p.partialCards) {
@@ -546,6 +607,7 @@ const AICreateScreen = ({ onSave }) => {
         latestCards = cards;
         setGeneratedCards(cards);
         setGenerated(true);
+        playDoneSound();
         const allDecks = decks.length > 0 ? decks : await fetchDecksSimple().catch(() => []);
         setRelatedCards(buildRelatedSuggestions(cards, allDecks, deckId));
       } else {
@@ -565,6 +627,8 @@ const AICreateScreen = ({ onSave }) => {
     } finally {
       setGenerating(false);
       setChunkProgress(null);
+      setChunkTimes([]);
+      setLastChunkStart(null);
       abortControllerRef.current = null;
     }
   };
@@ -628,6 +692,26 @@ const AICreateScreen = ({ onSave }) => {
   const progressPct = chunkProgress
     ? Math.round((chunkProgress.current / chunkProgress.total) * 100)
     : 0;
+
+  // Estimated time remaining based on average time per completed chunk
+  const etaLabel = (() => {
+    if (!chunkProgress || chunkProgress.phase !== "chunks" || chunkTimes.length === 0) return null;
+    const chunksLeft = chunkCount - chunkProgress.current;
+    if (chunksLeft <= 0) return null;
+    const avgMs = chunkTimes.reduce((a, b) => a + b, 0) / chunkTimes.length;
+    const totalMs = avgMs * chunksLeft;
+    if (totalMs < 5000) return "falta menos de 5s";
+    if (totalMs < 60000) return `falta ~${Math.round(totalMs / 1000)}s`;
+    return `falta ~${Math.round(totalMs / 60000)}min`;
+  })();
+
+  // Content hint shown in skeleton (first 45 chars of the active input)
+  const contentHint = (() => {
+    if (source === "texto") return text.trim().slice(0, 45);
+    if (source === "pdf") return pdfText.trim().slice(0, 45);
+    if (source === "link") return linkContent.trim().slice(0, 45);
+    return "";
+  })();
 
   return (
     <div className="screen">
@@ -901,14 +985,21 @@ const AICreateScreen = ({ onSave }) => {
 
           {/* Progress bar — violet during chunk extraction, accent during compilation */}
           {generating && chunkProgress && chunkProgress.total > 1 && (
-            <div style={{height:3, borderRadius:2, background:"var(--surface-2)", overflow:"hidden", marginBottom:10}}>
-              <div style={{
-                height:"100%",
-                width:`${progressPct}%`,
-                background: chunkProgress.phase === "compiling" ? "var(--accent)" : "var(--violet)",
-                borderRadius:2,
-                transition:"width .4s ease, background .3s ease",
-              }}/>
+            <div style={{marginBottom: etaLabel ? 4 : 10}}>
+              <div style={{height:3, borderRadius:2, background:"var(--surface-2)", overflow:"hidden"}}>
+                <div style={{
+                  height:"100%",
+                  width:`${progressPct}%`,
+                  background: chunkProgress.phase === "compiling" ? "var(--accent)" : "var(--violet)",
+                  borderRadius:2,
+                  transition:"width .4s ease, background .3s ease",
+                }}/>
+              </div>
+              {etaLabel && (
+                <div style={{fontSize:11, color:"var(--text-mute)", textAlign:"right", marginTop:3, marginBottom:8}}>
+                  {etaLabel}
+                </div>
+              )}
             </div>
           )}
 
@@ -918,35 +1009,50 @@ const AICreateScreen = ({ onSave }) => {
             </div>
           )}
 
+          {/* Badge de contador de cards em tempo real */}
+          {generating && generatedCards.length > 0 && (
+            <div className="cards-counter-badge">
+              <span className="cards-counter-num" key={generatedCards.length}>{generatedCards.length}</span>
+              <span className="cards-counter-label">cards prontos</span>
+            </div>
+          )}
+
           {/* Status line during generation */}
           {generating && chunkProgress?.phase === "compiling" && (
             <div style={{fontSize:11.5, color:"var(--accent)", marginBottom:8, textAlign:"center", display:"flex", alignItems:"center", justifyContent:"center", gap:5}}>
               <Icon name="sparkle" size={11}/> Refinando {generatedCards.length} cards com Llama Scout…
             </div>
           )}
-          {generating && chunkProgress?.phase === "chunks" && generatedCards.length > 0 && (
-            <div style={{fontSize:11.5, color:"var(--text-mute)", marginBottom:8, textAlign:"center"}}>
-              {generatedCards.length} card{generatedCards.length !== 1 ? "s" : ""} extraído{generatedCards.length !== 1 ? "s" : ""} até agora…
-            </div>
-          )}
 
           {/* Shimmer skeletons while waiting for first cards */}
           {generating && generatedCards.length === 0 && (
             <>
-              {[1,2,3].map(i => (
+              <div className="preview-card">
+                <div className="shimmer long"/>
+                {contentHint && (
+                  <div style={{fontSize:11, color:"var(--text-mute)", marginTop:5, opacity:0.7, fontStyle:"italic"}}>
+                    sobre "{contentHint}{contentHint.length >= 45 ? "…" : ""}"
+                  </div>
+                )}
+                <div className="shimmer short" style={{marginTop:8}}/>
+              </div>
+              {[2,3].map(i => (
                 <div className="preview-card" key={i}>
                   <div className="shimmer long"/>
                   <div className="shimmer short"/>
                   <div className="shimmer" style={{width:"70%", marginTop:10}}/>
                 </div>
               ))}
+              <div style={{fontSize:12, color:"var(--text-mute)", textAlign:"center", marginTop:6, minHeight:18, transition:"opacity .3s"}}>
+                {WAIT_MESSAGES[waitMsgIndex]}
+              </div>
             </>
           )}
 
-          {generated && !generating && (
+          {(generated || (generating && generatedCards.length > 0)) && (
             <div>
               {generatedCards.map((c, i) => (
-                <div className="preview-card" key={i} style={{position:"relative", animationDelay:`${i*0.06}s`}}>
+                <div className={`preview-card${i >= prevCardCount ? " incoming" : ""}`} key={i} style={{position:"relative", animationDelay:`${i*0.06}s`}}>
                   <button
                     onClick={() => removeCard(i)}
                     title="Remover card"
@@ -1007,7 +1113,7 @@ const AICreateScreen = ({ onSave }) => {
               ))}
               <button
                 className="btn ghost"
-                style={{width:"100%", justifyContent:"center", marginTop:8, fontSize:12}}
+                style={{width:"100%", justifyContent:"center", marginTop:8, fontSize:12, display: generating ? "none" : ""}}
                 onClick={generate}
                 disabled={generating}
               >

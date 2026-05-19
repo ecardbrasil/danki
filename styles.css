@@ -1078,6 +1078,41 @@ button { font-family: inherit; }
 .shimmer.short { width: 50%; }
 .shimmer.long  { width: 90%; }
 
+/* cards-counter-badge: animated card count during generation */
+.cards-counter-badge {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+.cards-counter-num {
+  font-family: var(--serif);
+  font-size: 28px;
+  color: var(--accent);
+  line-height: 1;
+  animation: counter-pop .35s cubic-bezier(.17,.67,.35,1.4) forwards;
+}
+.cards-counter-label {
+  font-size: 12px;
+  color: var(--text-mute);
+  font-weight: 500;
+}
+@keyframes counter-pop {
+  0%   { transform: scale(1.45); opacity: .6; }
+  60%  { transform: scale(.95); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* text-reveal: wipe-in for new cards arriving during chunk generation */
+@keyframes text-reveal {
+  from { clip-path: inset(0 100% 0 0); opacity: .3; }
+  to   { clip-path: inset(0 0% 0 0);   opacity: 1; }
+}
+.preview-card.incoming .q {
+  animation: text-reveal .38s ease-out forwards;
+}
+
 /* ====== EDITOR ====== */
 .editor-grid {
   display: grid;
