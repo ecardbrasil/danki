@@ -129,6 +129,16 @@ async function fetchDueCards(deckId, limit = 50) {
   return data;
 }
 
+async function fetchCardsByDeck(deckId) {
+  if (!deckId) return [];
+  const { data, error } = await db
+    .from("cards")
+    .select("front")
+    .eq("deck_id", deckId);
+  if (error) return [];
+  return data.map(c => c.front).filter(Boolean);
+}
+
 async function createCard({ deck_id, type, front, back, tags }) {
   const { data: user } = await db.auth.getUser();
   const { data, error } = await db
@@ -305,7 +315,7 @@ Object.assign(window, {
   signUp, signIn, signOut, onAuthChange, getSession,
   fetchDecks, fetchDecksSimple, fetchDeckStats,
   createDeck, updateDeck, deleteDeck,
-  fetchDueCards, createCard, updateCard, reviewCard,
+  fetchDueCards, fetchCardsByDeck, createCard, updateCard, reviewCard,
   previewIntervals, computeNextInterval,
   startSession, endSession, recordReview,
   fetchSettings, saveSettings,

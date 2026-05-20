@@ -65,7 +65,7 @@ const splitIntoChunks_UNUSED = (text, maxChars = 7000) => {
 };
 
 // Build the flashcard generation prompt for a text chunk
-const buildChunkPrompt = (chunk, count, style, language, isMultipleChoice, isPartial) => {
+const buildChunkPrompt = (chunk, count, style, language, isMultipleChoice, isPartial, avoidQuestions = []) => {
   const styleInstructions = {
     "Q&A clássico": `Crie perguntas diretas com respostas objetivas e verificáveis.
 Formule a pergunta de forma inequívoca: prefira "Por que", "Como", "Qual a diferença entre", "Qual o efeito de" em vez de perguntas genéricas como "O que é X?".
@@ -129,7 +129,7 @@ Retorne APENAS um JSON válido com a chave "cards", neste formato:
   }
 ] }
 
-Texto para analisar:
+${avoidQuestions.length > 0 ? `\nIMPORTANTE — NÃO repita nenhuma das perguntas abaixo (já existentes no deck ou geradas anteriormente nesta sessão):\n${avoidQuestions.slice(0, 60).map((q, i) => `${i + 1}. ${q}`).join("\n")}\n` : ""}Texto para analisar:
 ${chunk}`;
 };
 
@@ -181,12 +181,12 @@ const callGemini = async (prompt, signal, temperature = 0.4) => {
 
 // ── Main generation orchestrator ───────────────────────────────────────────
 // Gemini 2.5 Flash has 1M token context window — entire text in one call, no chunking.
-const generateFlashcardsWithGemini = async (text, count, style, language, onProgress, signal) => {
+const generateFlashcardsWithGemini = async (text, count, style, language, onProgress, signal, avoidQuestions = []) => {
   const isMultipleChoice = style === "Múltipla escolha";
   const genTemperature = isMultipleChoice ? 0.3 : 0.4;
 
   if (onProgress) onProgress({ current: 1, total: 1, phase: "generating", model: "smart" });
-  const prompt = buildChunkPrompt(text, count, style, language, isMultipleChoice, false);
+  const prompt = buildChunkPrompt(text, count, style, language, isMultipleChoice, false, avoidQuestions);
   const { cards } = await callGemini(prompt, signal, genTemperature);
   if (onProgress) onProgress({ current: 1, total: 1, partialCards: cards, phase: "done", model: "smart" });
   return cards;
@@ -344,8 +344,7 @@ const AICreateScreen = ({ onSave }) => {
   // Track which cards are "new" for text-reveal animation
   React.useEffect(() => {
     if (!generating) setPrevCardCount(0);
-    else setPrevCardCount(generatedCards.length);
-  }, [generatedCards.length]);
+  }, [generating]);
 
   // Play a soft two-note chime when generation completes
   const playDoneSound = () => {
@@ -451,6 +450,10 @@ const AICreateScreen = ({ onSave }) => {
   };
 
   const generate = async () => {
+    const isGeneratingMore = generatedCards.length > 0;
+    const prevCards = isGeneratingMore ? [...generatedCards] : [];
+    const prevCount = prevCards.length;
+
     let content = null;
     let urlMeta = null;
 
@@ -481,15 +484,26 @@ const AICreateScreen = ({ onSave }) => {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
+    let deckFronts = [];
+    if (deckId) {
+      deckFronts = await fetchCardsByDeck(deckId).catch(() => []);
+    }
+    const avoidQuestions = [
+      ...prevCards.map(c => c.q).filter(Boolean),
+      ...deckFronts,
+    ];
+
     setGenerating(true);
     setGenerated(false);
     setError(null);
     setPartialError(false);
     setChunkProgress(null);
-    setGeneratedCards([]);
+    if (!isGeneratingMore) {
+      setGeneratedCards([]);
+    }
     setChunkTimes([]);
     setLastChunkStart(Date.now());
-    setPrevCardCount(0);
+    setPrevCardCount(prevCount);
 
     // Local vars track latest state reliably inside catch (no stale closure)
     let latestCards = [];
@@ -514,18 +528,18 @@ const AICreateScreen = ({ onSave }) => {
         lastChunk = p;
         setChunkProgress(p);
         if (p.partialCards) {
-          latestCards = p.partialCards;
-          setGeneratedCards([...p.partialCards]);
+          latestCards = [...prevCards, ...p.partialCards];
+          setGeneratedCards([...prevCards, ...p.partialCards]);
         }
       };
 
       const cards = source === "link"
         ? await generateFlashcardsFromUrl(content, count, style, language, urlMeta, onProgress, controller.signal)
-        : await generateFlashcardsWithGemini(content, count, style, language, onProgress, controller.signal);
+        : await generateFlashcardsWithGemini(content, count, style, language, onProgress, controller.signal, avoidQuestions);
 
       if (!controller.signal.aborted) {
-        latestCards = cards;
-        setGeneratedCards(cards);
+        latestCards = [...prevCards, ...cards];
+        setGeneratedCards([...prevCards, ...cards]);
         setGenerated(true);
         playDoneSound();
         const allDecks = decks.length > 0 ? decks : await fetchDecksSimple().catch(() => []);
