@@ -181,7 +181,7 @@ const AuthScreen = ({ onAuth, initialMode = "login", onBack }) => {
               background: "color-mix(in oklch, var(--rose) 12%, transparent)",
               border: "1px solid color-mix(in oklch, var(--rose) 30%, transparent)",
               borderRadius: 8, padding: "10px 14px",
-              fontSize: 13, color: "var(--rose)",
+              fontSize: 13, color: "var(--rose-text)",
             }}>{error}</div>
           )}
 
@@ -190,7 +190,7 @@ const AuthScreen = ({ onAuth, initialMode = "login", onBack }) => {
               background: "color-mix(in oklch, var(--accent) 12%, transparent)",
               border: "1px solid color-mix(in oklch, var(--accent) 30%, transparent)",
               borderRadius: 8, padding: "10px 14px",
-              fontSize: 13, color: "var(--accent)",
+              fontSize: 13, color: "var(--accent-text)",
             }}>{info}</div>
           )}
 
@@ -211,7 +211,7 @@ const AuthScreen = ({ onAuth, initialMode = "login", onBack }) => {
           <div style={{ textAlign: "center", marginTop: 20, fontSize: 13, color: "var(--text-mute)" }}>
             Não tem conta?{" "}
             <button
-              style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", padding: 0, fontSize: 13 }}
+              style={{ background: "none", border: "none", color: "var(--accent-text)", cursor: "pointer", padding: 0, fontSize: 13 }}
               onClick={() => { setMode("signup"); setError(""); setInfo(""); }}
             >Cadastre-se grátis</button>
           </div>

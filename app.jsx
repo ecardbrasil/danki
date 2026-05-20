@@ -5,7 +5,9 @@
 // Apply saved theme immediately to avoid flash on load
 (function() {
   const t = localStorage.getItem("danki-theme");
-  if (t === "light") document.documentElement.classList.add("theme-light");
+  if (t === "dark" || (!t && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
+    document.documentElement.classList.add("theme-dark");
+  }
 })();
 
 const SCREEN_CRUMBS = {
@@ -30,7 +32,11 @@ function App() {
   const [studyDeckId, setStudyDeckId] = React.useState(null);
   const [editorDeckId, setEditorDeckId] = React.useState(null);
   const [appStats, setAppStats] = React.useState({ streak: 0, deckCount: 0, totalDue: 0 });
-  const [theme, setTheme] = React.useState(() => localStorage.getItem("danki-theme") || "dark");
+  const [theme, setTheme] = React.useState(() => {
+    const stored = localStorage.getItem("danki-theme");
+    if (stored) return stored;
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  });
   const [quickStudyCards, setQuickStudyCards] = React.useState(null);
   const [quickStudyLabel, setQuickStudyLabel] = React.useState("");
 
@@ -38,7 +44,7 @@ function App() {
     setTheme(prev => {
       const next = prev === "dark" ? "light" : "dark";
       localStorage.setItem("danki-theme", next);
-      document.documentElement.classList.toggle("theme-light", next === "light");
+      document.documentElement.classList.toggle("theme-dark", next === "dark");
       return next;
     });
   };

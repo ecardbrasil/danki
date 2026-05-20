@@ -22,7 +22,7 @@ function smoothPath(pts) {
 // ── data ─────────────────────────────────────────────────────────────────
 
 const RETENTION_SERIES = [
-  { label: "Retenção %", color: "var(--accent)",
+  { label: "Retenção %", color: "var(--accent-text)",
     values: [72,74,75,76,74,78,80,79,82,83,82,85,86,84,87,88,87,89,90,89,91,92,91,93,92,94,93,94,94,94] },
   { label: "Meta (90%)", color: "var(--text-mute)", dash: true,
     values: Array(30).fill(90) },
@@ -52,10 +52,10 @@ const DECK_STATS = [
 
 const MATURITY = [
   { label:"Novo",      count:142, pct:9,  color:"var(--text-mute)" },
-  { label:"Aprendendo",count:218, pct:14, color:"var(--amber)"     },
-  { label:"Jovem",     count:387, pct:26, color:"var(--sky)"       },
-  { label:"Maduro",    count:509, pct:34, color:"var(--violet)"    },
-  { label:"Dominado",  count:245, pct:16, color:"var(--accent)"    },
+  { label:"Aprendendo",count:218, pct:14, color:"var(--amber-text)"  },
+  { label:"Jovem",     count:387, pct:26, color:"var(--sky)"         },
+  { label:"Maduro",    count:509, pct:34, color:"var(--violet-text)" },
+  { label:"Dominado",  count:245, pct:16, color:"var(--accent-text)" },
 ];
 
 const FORECAST_30 = Array.from({length:30}, (_, i) => {
@@ -74,7 +74,7 @@ const KpiCard = ({ label, value, unit, delta, deltaLabel, sub, accent }) => (
       {value}<em style={{fontFamily:"var(--sans)", fontSize:15, fontWeight:400, color:"var(--text-mute)", marginLeft:4}}>{unit}</em>
     </div>
     {delta !== undefined && (
-      <div style={{marginTop:8, fontSize:12, color: delta > 0 ? "var(--accent)" : delta < 0 ? "var(--rose)" : "var(--text-mute)", fontFamily:"var(--mono)"}}>
+      <div style={{marginTop:8, fontSize:12, color: delta > 0 ? "var(--accent-text)" : delta < 0 ? "var(--rose-text)" : "var(--text-mute)", fontFamily:"var(--mono)"}}>
         {delta > 0 ? "▲" : delta < 0 ? "▼" : "—"} {Math.abs(delta)}% {deltaLabel}
       </div>
     )}
@@ -376,8 +376,8 @@ const StatsScreen = () => {
               {[
                 {label:"Amanhã",       val: FORECAST_30[1] + " cards", color:"var(--text)"},
                 {label:"Esta semana",  val: FORECAST_30.slice(0,7).reduce((a,b)=>a+b,0) + " cards", color:"var(--text)"},
-                {label:"Este mês",     val: FORECAST_30.reduce((a,b)=>a+b,0) + " cards", color:"var(--violet)"},
-                {label:"Pico previsto",val: Math.max(...FORECAST_30) + " cards/dia", color:"var(--rose)"},
+                {label:"Este mês",     val: FORECAST_30.reduce((a,b)=>a+b,0) + " cards", color:"var(--violet-text)"},
+                {label:"Pico previsto",val: Math.max(...FORECAST_30) + " cards/dia", color:"var(--rose-text)"},
               ].map((r, i) => (
                 <div key={i} style={{display:"flex", justifyContent:"space-between", fontSize:12, padding:"6px 0", borderBottom:"1px dashed var(--border)"}}>
                   <span style={{color:"var(--text-mute)"}}>{r.label}</span>
@@ -459,7 +459,7 @@ const StatsScreen = () => {
                 <td style={{padding:"14px 16px"}}>
                   <span style={{
                     fontFamily:"var(--mono)", fontSize:12,
-                    color: d.retention >= 90 ? "var(--accent)" : d.retention >= 80 ? "var(--amber)" : "var(--rose)"
+                    color: d.retention >= 90 ? "var(--accent-text)" : d.retention >= 80 ? "var(--amber-text)" : "var(--rose-text)"
                   }}>{d.retention}%</span>
                 </td>
                 <td style={{padding:"14px 16px", fontFamily:"var(--mono)", color:"var(--text-soft)"}}>{d.reviews.toLocaleString("pt-BR")}</td>
@@ -467,7 +467,7 @@ const StatsScreen = () => {
                 <td style={{padding:"14px 22px", textAlign:"right"}}>
                   <span style={{
                     fontFamily:"var(--mono)", fontSize:12,
-                    color: d.trend > 0 ? "var(--accent)" : d.trend < 0 ? "var(--rose)" : "var(--text-mute)"
+                    color: d.trend > 0 ? "var(--accent-text)" : d.trend < 0 ? "var(--rose-text)" : "var(--text-mute)"
                   }}>
                     {d.trend > 0 ? `▲ +${d.trend}%` : d.trend < 0 ? `▼ ${d.trend}%` : "—"}
                   </span>
@@ -481,11 +481,11 @@ const StatsScreen = () => {
       {/* ── forgetting curve insight ── */}
       <div className="panel" style={{background:"linear-gradient(135deg, var(--bg-elev), var(--surface-2))", padding:"20px 22px", display:"flex", gap:20, alignItems:"center"}}>
         <div style={{width:40, height:40, borderRadius:12, background:"var(--accent-soft)", border:"1px solid var(--accent)", display:"grid", placeItems:"center", flexShrink:0}}>
-          <Icon name="target" size={18} style={{color:"var(--accent)"}}/>
+          <Icon name="target" size={18} style={{color:"var(--accent-text)"}}/>
         </div>
         <div style={{flex:1}}>
           <div style={{fontWeight:500, marginBottom:4}}>
-            Você está <strong style={{color:"var(--accent)"}}>4% acima</strong> da sua meta de retenção
+            Você está <strong style={{color:"var(--accent-text)"}}>4% acima</strong> da sua meta de retenção
           </div>
           <div style={{fontSize:12.5, color:"var(--text-mute)", lineHeight:1.5}}>
             Seu algoritmo FSRS-5 está ajustado para 92% de retenção alvo. Com 94% real, você pode aumentar os intervalos em ~15% sem perder performance — economizando ~8 minutos por dia.

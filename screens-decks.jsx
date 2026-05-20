@@ -540,9 +540,9 @@ const DeckCardLarge = ({ deck, deckStats, onStudy, onEdit, onRefresh, onMove }) 
       <div className="deck-meta" style={{marginTop:4}}>{s.total} cards</div>
 
       <div style={{display:"flex", gap:14, marginTop:18, marginBottom:14}}>
-        <DeckMini lbl="Novos"      val={s.newCards}  color="var(--violet)" />
-        <DeckMini lbl="Aprendendo" val={s.learning}  color="var(--amber)" />
-        <DeckMini lbl="Revisão"    val={s.due}       color="var(--accent)" />
+        <DeckMini lbl="Novos"      val={s.newCards}  color="var(--violet-text)" />
+        <DeckMini lbl="Aprendendo" val={s.learning}  color="var(--amber-text)" />
+        <DeckMini lbl="Revisão"    val={s.due}       color="var(--accent-text)" />
       </div>
 
       <div className="deck-progress-row">
@@ -605,7 +605,7 @@ const DeckListView = ({ decks, stats, onStudy, onMove }) => (
                 </div>
               </td>
               <td style={{fontFamily:"var(--mono)"}}>{s.total}</td>
-              <td>{s.due > 0 ? <span style={{color:"var(--accent)", fontFamily:"var(--mono)"}}>{s.due}</span> : <span style={{color:"var(--text-mute)", fontFamily:"var(--mono)"}}>—</span>}</td>
+              <td>{s.due > 0 ? <span style={{color:"var(--accent-text)", fontFamily:"var(--mono)"}}>{s.due}</span> : <span style={{color:"var(--text-mute)", fontFamily:"var(--mono)"}}>—</span>}</td>
               <td>
                 <div style={{display:"flex", alignItems:"center", gap:8, width:140}}>
                   <div className="deck-progress" style={{flex:1}}><i style={{width:`${s.mastery}%`, background:"var(--accent)"}}/></div>

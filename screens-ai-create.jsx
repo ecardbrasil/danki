@@ -810,7 +810,7 @@ const AICreateScreen = ({ onSave }) => {
                     {linkContent.slice(0, 500)}{linkContent.length > 500 ? "…" : ""}
                   </div>
                   <div style={{position:"relative", height:30, marginTop:-10, background:"linear-gradient(transparent, var(--surface-2))"}}/>
-                  <div style={{fontSize:12, color:"var(--accent)"}}>
+                  <div style={{fontSize:12, color:"var(--accent-text)"}}>
                     <Icon name="check" size={12}/> {linkContent.length.toLocaleString("pt-BR")} caracteres extraídos
                   </div>
                 </div>
@@ -953,7 +953,7 @@ const AICreateScreen = ({ onSave }) => {
 
           {/* Status line during generation */}
           {generating && chunkProgress?.phase === "compiling" && (
-            <div style={{fontSize:11.5, color:"var(--accent)", marginBottom:8, textAlign:"center", display:"flex", alignItems:"center", justifyContent:"center", gap:5}}>
+            <div style={{fontSize:11.5, color:"var(--accent-text)", marginBottom:8, textAlign:"center", display:"flex", alignItems:"center", justifyContent:"center", gap:5}}>
               <Icon name="sparkle" size={11}/> Refinando {generatedCards.length} cards com Llama Scout…
             </div>
           )}
@@ -1017,7 +1017,7 @@ const AICreateScreen = ({ onSave }) => {
                           <div key={oi} style={{
                             fontSize:13, padding:"5px 10px", borderRadius:6,
                             background: isCorrect ? "color-mix(in srgb, var(--accent) 14%, transparent)" : "var(--surface-2)",
-                            color: isCorrect ? "var(--accent)" : "var(--text-soft)",
+                            color: isCorrect ? "var(--accent-text)" : "var(--text-soft)",
                             border: isCorrect ? "1px solid var(--accent)" : "1px solid transparent",
                             fontWeight: isCorrect ? 500 : 400,
                           }}>
@@ -1080,7 +1080,7 @@ const AICreateScreen = ({ onSave }) => {
                 border:"1px solid var(--border)", background:"var(--bg-elev)",
                 borderRadius:12, padding:14, position:"relative"
               }}>
-                <div style={{fontFamily:"var(--mono)", fontSize:10, color:"var(--violet)", letterSpacing:".08em", textTransform:"uppercase"}}>{r.from}</div>
+                <div style={{fontFamily:"var(--mono)", fontSize:10, color:"var(--violet-text)", letterSpacing:".08em", textTransform:"uppercase"}}>{r.from}</div>
                 <div style={{fontFamily:"var(--serif)", fontSize:15, marginTop:6, lineHeight:1.3}}>
                   Deck relacionado à tag <em>{r.tag}</em>
                 </div>

@@ -36,8 +36,8 @@ const ProfileScreen = ({ user, onSignOut, onNav, stats = {}, theme = "dark", onT
   };
 
   const statCards = [
-    { label: "Sequência atual", value: `${stats.streak || 0}d`, icon: "flame", color: "var(--accent)" },
-    { label: "Total de decks", value: stats.deckCount || 0, icon: "layers", color: "var(--violet)" },
+    { label: "Sequência atual", value: `${stats.streak || 0}d`, icon: "flame", color: "var(--accent-text)" },
+    { label: "Total de decks", value: stats.deckCount || 0, icon: "layers", color: "var(--violet-text)" },
     { label: "Cards para revisar", value: stats.totalDue || 0, icon: "inbox", color: "var(--text-mute)" },
   ];
 
@@ -121,7 +121,7 @@ const ProfileScreen = ({ user, onSignOut, onNav, stats = {}, theme = "dark", onT
             </div>
             <span style={{ fontSize: 13, color: "var(--text-mute)" }}>{email}</span>
             {saved && (
-              <span style={{ fontSize: 12, color: "var(--accent)", display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ fontSize: 12, color: "var(--accent-text)", display: "flex", alignItems: "center", gap: 4 }}>
                 <Icon name="check" size={12} /> Nome atualizado!
               </span>
             )}

@@ -103,7 +103,7 @@ const LandingScreen = ({ onGoAuth }) => {
             display: "inline-flex", alignItems: "center", gap: 8,
             background: "var(--accent-soft)", border: "1px solid color-mix(in oklch, var(--accent) 25%, transparent)",
             borderRadius: 100, padding: "5px 14px",
-            fontSize: 12, color: "var(--accent)", letterSpacing: ".06em", textTransform: "uppercase",
+            fontSize: 12, color: "var(--accent-text)", letterSpacing: ".06em", textTransform: "uppercase",
             marginBottom: 28,
           }}>
             ✦ Flashcards com inteligência artificial
@@ -115,7 +115,7 @@ const LandingScreen = ({ onGoAuth }) => {
             margin: "0 0 24px",
           }}>
             Aprenda mais rápido,<br />
-            <em style={{ color: "var(--accent)" }}>esqueça menos</em>
+            <em style={{ color: "var(--accent-text)" }}>esqueça menos</em>
           </h1>
 
           <p style={{
@@ -164,7 +164,7 @@ const LandingScreen = ({ onGoAuth }) => {
             }}>
               <div style={{
                 fontFamily: "var(--serif)", fontSize: "clamp(32px, 5vw, 48px)",
-                fontStyle: "italic", color: "var(--accent)",
+                fontStyle: "italic", color: "var(--accent-text)",
                 lineHeight: 1,
               }}>{s.value}</div>
               <div style={{ fontSize: 13, color: "var(--text-mute)", marginTop: 8 }}>{s.label}</div>
@@ -206,7 +206,7 @@ const LandingScreen = ({ onGoAuth }) => {
                 width: 44, height: 44, borderRadius: 12,
                 background: "var(--accent-soft)",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 18, color: "var(--accent)", marginBottom: 20,
+                fontSize: 18, color: "var(--accent-text)", marginBottom: 20,
               }}>{f.icon}</div>
               <h3 style={{
                 fontFamily: "var(--heading)", fontSize: 17, fontWeight: 600,
@@ -246,7 +246,7 @@ const LandingScreen = ({ onGoAuth }) => {
             textAlign: "center",
           }}>
             <div style={{
-              fontSize: 11, color: "var(--accent)", letterSpacing: ".1em",
+              fontSize: 11, color: "var(--accent-text)", letterSpacing: ".1em",
               textTransform: "uppercase", marginBottom: 24,
               display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
             }}>
@@ -265,7 +265,7 @@ const LandingScreen = ({ onGoAuth }) => {
               {["Difícil", "Bom", "Fácil"].map((l, i) => (
                 <button key={i} className="btn ghost" style={{
                   fontSize: 13, height: 34, padding: "0 16px",
-                  color: i === 0 ? "var(--rose)" : i === 2 ? "var(--accent)" : "var(--text-soft)",
+                  color: i === 0 ? "var(--rose-text)" : i === 2 ? "var(--accent-text)" : "var(--text-soft)",
                 }}>{l}</button>
               ))}
             </div>
@@ -283,7 +283,7 @@ const LandingScreen = ({ onGoAuth }) => {
           fontFamily: "var(--serif)", fontSize: "clamp(28px, 4vw, 48px)",
           fontWeight: 400, letterSpacing: "-.025em", margin: "0 0 20px",
         }}>
-          Pronto para começar a <em style={{ color: "var(--accent)" }}>aprender de verdade</em>?
+          Pronto para começar a <em style={{ color: "var(--accent-text)" }}>aprender de verdade</em>?
         </h2>
         <p style={{ color: "var(--text-mute)", fontSize: 16, marginBottom: 36 }}>
           Gratuito para começar. Sem cartão de crédito.

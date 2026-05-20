@@ -128,8 +128,8 @@ const MultipleChoiceCard = ({ mc, flipped, selectedOption }) => {
         let bg    = "var(--surface-2)";
         let border = "var(--border)";
         let color = "var(--text)";
-        if (isCorrect)      { bg = "oklch(0.84 0.16 142 / 0.15)"; border = "var(--accent)"; color = "var(--accent)"; }
-        else if (isWrong)   { bg = "oklch(0.74 0.16 25 / 0.15)";  border = "var(--rose)";   color = "var(--rose)"; }
+        if (isCorrect)      { bg = "oklch(0.84 0.16 142 / 0.15)"; border = "var(--accent)"; color = "var(--accent-text)"; }
+        else if (isWrong)   { bg = "oklch(0.74 0.16 25 / 0.15)";  border = "var(--rose)";   color = "var(--rose-text)"; }
         return (
           <div key={i} style={{
             padding:"10px 14px",
@@ -479,9 +479,9 @@ const StudyScreen = ({ deckId, onExit, onNav, preloadedCards = null, quickStudyL
           <div className="study-progress-meta">
             <span>card {doneCount + 1} de {total}</span>
             <span style={{display:"flex", gap:16}}>
-              <span style={{color:"var(--rose)"}}>● {history.filter(h=>h.rating==="again").length} errei</span>
-              <span style={{color:"var(--amber)"}}>● {history.filter(h=>h.rating==="hard").length} difícil</span>
-              <span style={{color:"var(--accent)"}}>● {history.filter(h=>h.rating==="good").length} bom</span>
+              <span style={{color:"var(--rose-text)"}}>● {history.filter(h=>h.rating==="again").length} errei</span>
+              <span style={{color:"var(--amber-text)"}}>● {history.filter(h=>h.rating==="hard").length} difícil</span>
+              <span style={{color:"var(--accent-text)"}}>● {history.filter(h=>h.rating==="good").length} bom</span>
               <span style={{color:"var(--sky)"}}>● {history.filter(h=>h.rating==="easy").length} fácil</span>
             </span>
           </div>
@@ -648,7 +648,7 @@ const StudyScreen = ({ deckId, onExit, onNav, preloadedCards = null, quickStudyL
             Sessão · {deckLabel}
           </div>
           <h1 style={{fontFamily:"var(--serif)", fontSize:32, margin:"6px 0 0", letterSpacing:"-.02em", fontWeight:400}}>
-            Revisão <em style={{color:"var(--accent)", fontStyle:"italic"}}>diária</em>
+            Revisão <em style={{color:"var(--accent-text)", fontStyle:"italic"}}>diária</em>
           </h1>
         </div>
         <div style={{display:"flex", alignItems:"center", gap:10}}>

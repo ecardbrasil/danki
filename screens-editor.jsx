@@ -85,8 +85,8 @@ const EditorScreen = ({ initialDeckId, onBack }) => {
         </div>
       </div>
 
-      {error   && <div style={{background:"var(--rose-soft,#3d1a1a)", border:"1px solid var(--rose,#f87171)", borderRadius:10, padding:"10px 16px", marginBottom:16, fontSize:13, color:"var(--rose,#f87171)"}}>{error}</div>}
-      {success && <div style={{background:"var(--green-soft,#0d2d1a)", border:"1px solid var(--green,#4ade80)", borderRadius:10, padding:"10px 16px", marginBottom:16, fontSize:13, color:"var(--green,#4ade80)"}}>{success}</div>}
+      {error   && <div style={{background:"color-mix(in oklch, var(--rose) 12%, transparent)", border:"1px solid color-mix(in oklch, var(--rose) 30%, transparent)", borderRadius:10, padding:"10px 16px", marginBottom:16, fontSize:13, color:"var(--rose-text)"}}>{error}</div>}
+      {success && <div style={{background:"color-mix(in oklch, var(--green) 12%, transparent)", border:"1px solid color-mix(in oklch, var(--green) 30%, transparent)", borderRadius:10, padding:"10px 16px", marginBottom:16, fontSize:13, color:"var(--green-text)"}}>{success}</div>}
 
       <div className="editor-grid">
         <div>
